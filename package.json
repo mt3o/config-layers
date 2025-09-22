@@ -3,8 +3,16 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "main": "./dist/config-layers.js",
+  "main": "dist/config-layers.js",
+  "exports": {
+    ".": {
+      "import": "./dist/config-layers.js",
+      "require": "./dist/config-layers.cjs"
+    },
+    "./package.json": "./package.json"
+  },
   "license": "MIT",
+  "files": ["dist"],
   "author": {
     "name": "Teodor Kulej",
     "email": "mt3o@users.noreply.github.com",
@@ -12,7 +20,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "tsc --emitDeclarationOnly && vite build",
+    "build": "tsc --noEmit && vite build && tsc --declaration --emitDeclarationOnly --outDir dist --declarationMap true",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
