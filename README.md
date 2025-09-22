@@ -18,8 +18,11 @@ npm install config-layers
 
 ## Usage
 
+
+NOTE: Examples use dynamic imports due to [Vitest doctest](https://github.com/ssssota/doc-vitest) limitations.
+
 Feel free to import traditionally or dynamically as shown in the examples.
-Examples use dynamic imports due to [Vitest doctest](https://github.com/ssssota/doc-vitest) limitations.
+
 
 ### Basic Example
 ```typescript :@import.meta.vitest
