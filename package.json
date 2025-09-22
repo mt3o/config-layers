@@ -1,0 +1,47 @@
+{
+  "name": "config-layers",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./dist/config-layers.js",
+  "license": "MIT",
+  "author": {
+    "name": "Teodor Kulej",
+    "email": "mt3o@users.noreply.github.com",
+    "url": "https://github.com/mt3o"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --emitDeclarationOnly && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "typecheck": "tsc --noEmit",
+    "clean": "rimraf coverage build out tmp"
+  },
+  "keywords": ["configuration","confi","layers"],
+  "bugs": {
+    "url": "https://github.com/mt3o/config-layers/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wmt3o/config-layers.git"
+  },
+  "homepage": "https://github.com/mt3o/config-layers#readme",
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "rimraf": "^6.0.1",
+    "typescript": "~5.8.3",
+    "typescript-eslint": "^8.44.0",
+    "vite": "^7.1.7",
+    "vite-plugin-doctest": "^1.1.1",
+    "vitest": "^3.2.4"
+  },
+  "release": {
+    "branches": [
+      "main"
+    ]
+  }
+}
