@@ -1,37 +1,4 @@
-/**
- * Represents the name of a configuration layer.
- */
-type LayerName = string | symbol;
-/**
- * The result of inspecting a configuration key, including its resolved value, source layer, and per-layer details.
- */
-interface ConfigInspectionResult<Schema, T> {
-    key: string | symbol | keyof Schema;
-    resolved: {
-        value: T | undefined | Partial<Schema>;
-        source: LayerName;
-    };
-    layers: Array<{
-        layer: LayerName;
-        value: T | undefined | Partial<Schema>;
-        isPresent: boolean;
-        isActive: boolean;
-    }>;
-}
-/**
- * A handler function for retrieving a config value with a fallback.
- */
-type WithHandler<Schema> = <K extends keyof Schema, T>(name: K | symbol | number, fallback?: T) => T;
-/**
- * An interface for inspecting the source and value of a config key.
- */
-type WithInspect<Schema> = {
-    __inspect: <K extends keyof Schema>(key: K | string | number) => ConfigInspectionResult<Schema, Schema[K]>;
-};
-/**
- * A function called when a config key is not found.
- */
-type NotFoundHandler = (key: string | symbol | number) => any;
+import type { LayerName, ConfigInspectionResult, ConfigOptions, ConfigHandle } from "./types";
 /**
  * LayeredConfig provides a proxy-based API for merging and inspecting configuration from multiple layers.
  *
@@ -66,8 +33,12 @@ type NotFoundHandler = (key: string | symbol | number) => any;
  *
  * // print welcome message in Spanish if exists, otherwise in English
  * console.log(labels.welcomeMessage)
+ *
  * // print welcome message in Spanish if exists, otherwise in English, otherwise 'Welcome!'
- * console.log(labels('welcomeMessage','Welcome!'))
+ * console.log(labels('welcomeMessage','Welcome!'));
+ *
+ * //to inspect where the key came from:
+ * console.log(labels.__inspect('welcomeMessage'));
  *
  * ```
  */
@@ -84,15 +55,15 @@ export declare class LayeredConfig<Schema extends Record<string | symbol, any> =
      * @returns LayeredConfig following the Schema
      *
      * Check `LayeredConfig` class documentation for usage example.
+     * @see LayeredConfig
      *
      */
     static fromLayers<Schema extends Record<string | symbol, any> = Record<string, any>>(layers: Array<{
         name: LayerName;
         config: Partial<Schema>;
-    }>, options?: {
-        notFoundHandler?: NotFoundHandler;
-    }): Schema & WithInspect<Schema> & WithHandler<Schema>;
+    }>, options?: ConfigOptions): ConfigHandle<Schema>;
     private __withFallback;
+    private __derive;
     private __getComplex;
     private __getFlat;
     /**
@@ -103,5 +74,4 @@ export declare class LayeredConfig<Schema extends Record<string | symbol, any> =
      */
     __inspect<K extends keyof Schema>(key: K | string): ConfigInspectionResult<Schema, Schema[K]>;
 }
-export {};
 //# sourceMappingURL=index.d.ts.map

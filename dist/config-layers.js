@@ -1,16 +1,16 @@
-function u(c) {
-  return typeof c == "string";
+function u(d) {
+  return typeof d == "string";
 }
-function f(c) {
-  return c.split(new RegExp("(?<!\\.)\\.(?!\\.)"));
+function f(d) {
+  return d.split(new RegExp("(?<!\\.)\\.(?!\\.)"));
 }
-class d {
+class c {
   layers;
-  constructor(r) {
-    this.layers = r;
+  constructor(t) {
+    this.layers = t;
   }
-  notFoundHandler = (r) => {
-    throw new Error(`Key not found: ${String(r)}`);
+  notFoundHandler = (t) => {
+    throw new Error(`Key not found: ${String(t)}`);
   };
   /**
    * Creates an instance of LayeredConfig from an array of layer objects.
@@ -21,29 +21,30 @@ class d {
    * @returns LayeredConfig following the Schema
    *
    * Check `LayeredConfig` class documentation for usage example.
+   * @see LayeredConfig
    *
    */
-  static fromLayers(r, n) {
-    const s = new d(
-      new Map(r.map((l) => [l.name, l.config]))
+  static fromLayers(t, s) {
+    const n = new c(
+      new Map(t.map((i) => [i.name, i.config]))
     );
-    return n?.notFoundHandler && (s.notFoundHandler = n.notFoundHandler), new Proxy(() => {
+    return s?.notFoundHandler && (n.notFoundHandler = s.notFoundHandler), new Proxy(() => {
     }, {
-      apply(l, e, t) {
-        const [o, a] = t;
-        return s.__withFallback(o, a);
+      apply(i, e, r) {
+        const [o, a] = r;
+        return n.__withFallback(o, a);
       },
-      has(l, e) {
-        const t = u(e) ? f(e) : [e];
-        return t.length == 1 ? s.__getFlat(e) !== void 0 : t.length > 1 ? s.__getComplex(e) !== void 0 : !1;
+      has(i, e) {
+        const r = u(e) ? f(e) : [e];
+        return r.length == 1 ? n.__getFlat(e) !== void 0 : r.length > 1 ? n.__getComplex(e) !== void 0 : !1;
       },
-      getOwnPropertyDescriptor(l, e) {
+      getOwnPropertyDescriptor(i, e) {
         return {
           enumerable: !0,
           configurable: !0
         };
       },
-      deleteProperty(l, e) {
+      deleteProperty(i, e) {
         return !1;
       },
       set() {
@@ -53,34 +54,62 @@ class d {
         return !1;
       },
       ownKeys() {
-        const e = Array.from(s.layers.values()).map((o) => Object.keys(o)), t = Array.from(
+        const e = Array.from(n.layers.values()).map((o) => Object.keys(o)), r = Array.from(
           new Set(e.flat())
         );
-        return { ...t, length: t.length };
+        return { ...r, length: r.length };
       },
-      get(l, e, t) {
+      get(i, e, r) {
         if (e === "__inspect")
-          return s.__inspect.bind(s);
+          return n.__inspect.bind(n);
+        if (e === "__derive")
+          return n.__derive.bind(n);
         const o = u(e) ? f(e) : [e];
         if (o.length == 1)
-          return s.__getFlat(e);
+          return n.__getFlat(e);
         if (o.length > 1)
-          return s.__getComplex(e);
+          return n.__getComplex(e);
       }
     });
   }
-  __withFallback(r, n) {
-    return (u(r) ? f(r) : [r]).length == 1 ? this.__getFlat(r, n) : this.__getComplex(r, n);
+  __withFallback(t, s) {
+    return (u(t) ? f(t) : [t]).length == 1 ? this.__getFlat(t, s) : this.__getComplex(t, s);
   }
-  __getComplex(r, n) {
-    const s = u(r) ? f(r) : [r], l = Array.from(this.layers.values()).reverse();
+  __derive(t, s, n) {
+    const i = Array.from(this.layers.entries()).reduce(
+      (e, [r, o]) => (e[r] = o, e),
+      {}
+    );
+    if (typeof t == "object" && s === void 0) {
+      const e = Object.assign({}, {
+        notFoundHandler: this.notFoundHandler
+      }, t);
+      return c.fromLayers(
+        Object.entries(i).map(([r, o]) => ({ name: r, config: o })),
+        e
+      );
+    }
+    return typeof t == "string" && s !== void 0 ? (i[t] = s, c.fromLayers(
+      Object.entries(i).map(([e, r]) => ({ name: e, config: r })),
+      Object.assign({}, {
+        notFoundHandler: this.notFoundHandler
+      }, n ?? {})
+    )) : c.fromLayers(
+      Object.entries(i).map(([e, r]) => ({ name: e, config: r })),
+      Object.assign({}, {
+        notFoundHandler: this.notFoundHandler
+      }, n ?? {})
+    );
+  }
+  __getComplex(t, s) {
+    const n = u(t) ? f(t) : [t], i = Array.from(this.layers.values()).reverse();
     let e;
-    for (const t of l) {
-      if (!t) continue;
-      let o = t, a = !0;
-      for (const i of s)
-        if (o && i in o)
-          o = o[i];
+    for (const r of i) {
+      if (!r) continue;
+      let o = r, a = !0;
+      for (const l of n)
+        if (o && l in o)
+          o = o[l];
         else {
           a = !1;
           break;
@@ -90,13 +119,13 @@ class d {
         break;
       }
     }
-    return e !== void 0 ? e : n || this.notFoundHandler(r);
+    return e !== void 0 ? e : s || this.notFoundHandler(t);
   }
-  __getFlat(r, n) {
-    for (const s of Array.from(this.layers.values()).reverse())
-      if (s && r in s)
-        return s[r];
-    return n || this.notFoundHandler(r);
+  __getFlat(t, s) {
+    for (const n of Array.from(this.layers.values()).reverse())
+      if (n && t in n)
+        return n[t];
+    return s || this.notFoundHandler(t);
   }
   /**
    * Inspects a configuration key, providing details about its value and source across layers.
@@ -104,66 +133,66 @@ class d {
    * @param key - The configuration key to inspect.
    * @returns An object containing inspection results, including the resolved value and layer details.
    */
-  __inspect(r) {
-    const n = {
-      key: r,
+  __inspect(t) {
+    const s = {
+      key: t,
       resolved: {
         value: void 0,
         source: ""
       },
       layers: []
-    }, s = u(r) ? f(r) : [r], l = Array.from(this.layers.keys()).reverse();
-    if (s.length < 1)
+    }, n = u(t) ? f(t) : [t], i = Array.from(this.layers.keys()).reverse();
+    if (n.length < 1)
       return {
-        key: r,
+        key: t,
         resolved: {
           value: void 0,
           source: ""
         },
-        layers: l.map((e) => ({
+        layers: i.map((e) => ({
           layer: e,
           value: void 0,
           isPresent: !1,
           isActive: !1
         }))
       };
-    if (s.length == 1) {
+    if (n.length == 1) {
       let e = !1;
-      for (const t of l) {
-        const o = this.layers.get(t), a = !!(o && r in o), i = a ? o?.[r] : void 0, v = a ? !e : !1;
-        n.layers.push({
-          layer: t,
-          value: a ? i : void 0,
+      for (const r of i) {
+        const o = this.layers.get(r), a = !!(o && t in o), l = a ? o?.[t] : void 0, v = a ? !e : !1;
+        s.layers.push({
+          layer: r,
+          value: a ? l : void 0,
           isPresent: a,
           isActive: v
-        }), v && !e && (n.resolved.value = i, n.resolved.source = t, e = !0);
+        }), v && !e && (s.resolved.value = l, s.resolved.source = r, e = !0);
       }
     }
-    if (s.length > 1)
-      for (const e of l) {
-        let t = this.layers.get(e);
-        if (!t)
+    if (n.length > 1)
+      for (const e of i) {
+        let r = this.layers.get(e);
+        if (!r)
           continue;
         let o = !0;
-        for (const i of s)
-          if (t && typeof t == "object" && i in t)
-            t = t[i];
+        for (const l of n)
+          if (r && typeof r == "object" && l in r)
+            r = r[l];
           else {
             o = !1;
             break;
           }
-        o || (t = void 0);
-        const a = o && t !== void 0;
-        n.layers.push({
+        o || (r = void 0);
+        const a = o && r !== void 0;
+        s.layers.push({
           layer: e,
-          value: a ? t : void 0,
+          value: a ? r : void 0,
           isPresent: o,
-          isActive: a && n.resolved.value === void 0
-        }), a && n.resolved.value === void 0 && (n.resolved.value = t, n.resolved.source = e);
+          isActive: a && s.resolved.value === void 0
+        }), a && s.resolved.value === void 0 && (s.resolved.value = r, s.resolved.source = e);
       }
-    return n;
+    return s;
   }
 }
 export {
-  d as LayeredConfig
+  c as LayeredConfig
 };

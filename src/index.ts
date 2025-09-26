@@ -1,41 +1,10 @@
-/**
- * Represents the name of a configuration layer.
- */
-type LayerName = string | symbol;
-
-/**
- * The result of inspecting a configuration key, including its resolved value, source layer, and per-layer details.
- */
-interface ConfigInspectionResult<Schema, T> {
-    key: string | symbol | keyof Schema;
-    resolved: {
-        value: T | undefined | Partial<Schema>;
-        source: LayerName;
-    };
-    layers: Array<{
-        layer: LayerName;
-        value: T | undefined | Partial<Schema>;
-        isPresent: boolean;
-        isActive: boolean;
-    }>;
-}
-
-/**
- * A handler function for retrieving a config value with a fallback.
- */
-type WithHandler<Schema> = <K extends keyof Schema, T> (name: K | symbol | number, fallback?: T) => T;
-
-/**
- * An interface for inspecting the source and value of a config key.
- */
-type WithInspect<Schema> = {
-    __inspect: <K extends keyof Schema>(key: K | string | number) => ConfigInspectionResult<Schema, Schema[K]>
-}
-
-/**
- * A function called when a config key is not found.
- */
-type NotFoundHandler = (key: string | symbol | number) => any;
+import type {
+    LayerName,
+    ConfigInspectionResult,
+    ConfigOptions,
+    NotFoundHandler,
+    ConfigHandle,
+} from "./types";
 
 function isString(key: string | symbol | number) {
     return typeof key === 'string';
@@ -45,6 +14,8 @@ function splitDotExceptDouble(str: string): string[] {
     // Split on '.' not preceded or followed by another '.'
     return str.split(/(?<!\.)\.(?!\.)/);
 }
+
+
 
 /**
  * LayeredConfig provides a proxy-based API for merging and inspecting configuration from multiple layers.
@@ -117,9 +88,8 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
      *
      */
     public static fromLayers<Schema extends Record<string | symbol, any> = Record<string, any>>(
-        layers: Array<{ name: LayerName, config: Partial<Schema> }>, options?: {
-            notFoundHandler?: NotFoundHandler
-        }
+        layers: Array<{ name: LayerName, config: Partial<Schema> }>,
+        options?: ConfigOptions
     ) {
         const instance = new LayeredConfig<Schema>(
             new Map(layers.map(l => [l.name, l.config]))
@@ -130,6 +100,7 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
         }
 
 
+        // noinspection JSUnusedGlobalSymbols
         return new Proxy(() => {
         }, {
             apply(_target, _this, argArray: [string, string]): any {
@@ -174,6 +145,9 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
                 if (key === '__inspect') {
                     return instance.__inspect.bind(instance);
                 }
+                if (key === '__derive') {
+                    return instance.__derive.bind(instance);
+                }
 
                 const treeKeyParts = isString(key) ? splitDotExceptDouble(key) : [key];
 
@@ -184,7 +158,7 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
                     return instance.__getComplex(key);
                 }
             }
-        }) as unknown as Schema & WithInspect<Schema> & WithHandler<Schema>;
+        }) as unknown as ConfigHandle<Schema>;
     }
 
     private __withFallback<K extends keyof Schema, T>(key: K | number | symbol, fallback: T): T | Partial<Schema> {
@@ -194,6 +168,56 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
         }
 
         return this.__getComplex(key, fallback);
+
+    }
+
+
+
+    private __derive(name: string, layer: Partial<Schema>): ConfigHandle<Schema>;
+    private __derive(name: string, layer: Partial<Schema>,opts:ConfigOptions): ConfigHandle<Schema>;
+    private __derive(opts:ConfigOptions): ConfigHandle<Schema>;
+
+    private __derive(nameOrOpts: string | ConfigOptions, layer?: Partial<Schema>, opts?:ConfigOptions): ConfigHandle<Schema> {
+
+        const newLayers = Array.from(this.layers.entries())
+            .reduce(
+                (acc, [name, layer])=>{
+                    acc[name]=layer;
+                    return acc;
+                }, {} as Record<LayerName, Partial<Schema>>);
+
+        if (typeof nameOrOpts === 'object' && layer === undefined) {
+            // called with opts only
+
+            const newOpts: ConfigOptions = Object.assign({}, {
+                notFoundHandler: this.notFoundHandler,
+            },nameOrOpts)
+
+            return LayeredConfig.fromLayers(
+                Object.entries(newLayers).map(([name, config])=> ({name, config})),
+                newOpts
+            );
+
+        }
+
+        if (typeof nameOrOpts === 'string' && layer !== undefined) {
+            newLayers[nameOrOpts] = layer;
+
+            return LayeredConfig.fromLayers(
+                Object.entries(newLayers).map(([name, config]) => ({name, config})),
+                Object.assign({}, {
+                    notFoundHandler: this.notFoundHandler,
+                }, opts ?? {})
+            );
+        }
+
+        return LayeredConfig.fromLayers(
+            Object.entries(newLayers)
+                .map(([name, config]) => ({name, config})),
+            Object.assign({}, {
+                notFoundHandler: this.notFoundHandler,
+            }, opts ?? {})
+        )
 
     }
 

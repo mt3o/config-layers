@@ -105,6 +105,42 @@ expect(cfg.__inspect('apikey')).toStrictEqual({
  })
 ```
 
+### Deriving New Configurations with `__derive`
+
+You can create a new configuration by adding or overriding layers, or by changing options (such as the not-found handler), without mutating the original config. This is useful for scenarios like feature toggles, user overrides, or context-specific settings.
+
+#### Usage
+
+```typescript :@import.meta.vitest
+const {LayeredConfig} = await import('./dist/config-layers.js');
+
+const base = LayeredConfig.fromLayers([
+  { name: 'default', config: { apiUrl: 'https://api.example.com', timeout: 5000 } },
+  { name: 'env', config: { timeout: 3000 } },
+]);
+
+// Derive a new config with an additional layer
+const featureConfig = base.__derive('feature', { apiUrl: 'https://feature-api.example.com' });
+expect(featureConfig.apiUrl).toBe('https://feature-api.example.com');
+expect(base.apiUrl).toBe('https://api.example.com'); // original is unchanged
+
+// Derive with a custom notFoundHandler
+const safeConfig = base.__derive({ notFoundHandler: key => `Missing: ${key}` });
+expect(safeConfig.nonexistent).toBe('Missing: nonexistent');
+
+// Combine both: add a layer and set options
+const custom = base.__derive('user', { timeout: 1000 }, { notFoundHandler: key => 'N/A' });
+expect(custom.timeout).toBe(1000);
+expect(custom.nonexistent).toBe('N/A');
+```
+
+#### API
+- `cfg.__derive(layerName, layerConfig)`: Returns a new config with the given layer added or replaced.
+- `cfg.__derive(options)`: Returns a new config with new options (e.g., a custom notFoundHandler).
+- `cfg.__derive(layerName, layerConfig, options)`: Returns a new config with both a new/overridden layer and new options.
+
+The original config is never mutated. All derived configs are independent proxies.
+
 Consult the [unit tests](./tests/basic.test.ts) [examples](./examples) folder for more usage patterns.
 
 ## API
