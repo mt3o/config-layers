@@ -2,7 +2,6 @@ import type {
     LayerName,
     ConfigInspectionResult,
     ConfigOptions,
-    NotFoundHandler,
     ConfigHandle,
 } from "./types";
 
@@ -15,7 +14,37 @@ function splitDotExceptDouble(str: string): string[] {
     return str.split(/(?<!\.)\.(?!\.)/);
 }
 
+function deepMerge<T extends object, U extends object>(target: T, source: U): T & U {
+    for (const key in source) {
+        if (
+            Object.prototype.hasOwnProperty.call(source, key) &&
+            typeof source[key] === 'object' &&
+            source[key] !== null &&
+            !Array.isArray(source[key])
+        ) {
+            if (!(key in target)) {
+                (target as any)[key] = {};
+            }
+            deepMerge((target as any)[key], (source as any)[key]);
+        } else {
+            (target as any)[key] = source[key];
+        }
+    }
+    return target as T & U;
+}
 
+function deepFreeze<T>(obj: T): T {
+    if (obj && typeof obj === "object" && !Object.isFrozen(obj)) {
+        Object.getOwnPropertyNames(obj).forEach((prop) => {
+            const value = (obj as any)[prop];
+            if (value && typeof value === "object") {
+                deepFreeze(value);
+            }
+        });
+        Object.freeze(obj);
+    }
+    return obj;
+}
 
 /**
  * LayeredConfig provides a proxy-based API for merging and inspecting configuration from multiple layers.
@@ -64,16 +93,32 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
 
     private layers: Map<LayerName, Partial<Schema>>;
 
+    private flattened: Partial<Schema>;
+
     private constructor(
         layers: Map<LayerName, Partial<Schema>>,
+        options: Partial<ConfigOptions> | undefined = undefined,
     ) {
         this.layers = layers;
+        this.flattened = Array.from(this.layers.values()).reduce((acc, layer) => {
+            return deepMerge(acc, layer);
+        }, {} as Partial<Schema>);
+
+        this.options = {
+            ...{
+                notFoundHandler: (key) => {
+                    throw new Error(`Key not found: ${String(key)}`);
+                },
+                freeze: true,
+            },
+            ...options ?? {}
+        };
+
+
     }
 
+    private options: ConfigOptions;
 
-    private notFoundHandler: NotFoundHandler = (key) => {
-        throw new Error(`Key not found: ${String(key)}`);
-    };
 
     /**
      * Creates an instance of LayeredConfig from an array of layer objects.
@@ -91,13 +136,13 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
         layers: Array<{ name: LayerName, config: Partial<Schema> }>,
         options?: ConfigOptions
     ) {
+
         const instance = new LayeredConfig<Schema>(
-            new Map(layers.map(l => [l.name, l.config]))
+            new Map(layers.map(l => [l.name, l.config])),
+            options
         );
 
-        if (options?.notFoundHandler) {
-            instance.notFoundHandler = options.notFoundHandler;
-        }
+        deepFreeze(instance);
 
 
         // noinspection JSUnusedGlobalSymbols
@@ -172,29 +217,26 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
     }
 
 
-
     private __derive(name: string, layer: Partial<Schema>): ConfigHandle<Schema>;
-    private __derive(name: string, layer: Partial<Schema>,opts:ConfigOptions): ConfigHandle<Schema>;
-    private __derive(opts:ConfigOptions): ConfigHandle<Schema>;
+    private __derive(name: string, layer: Partial<Schema>, opts: ConfigOptions): ConfigHandle<Schema>;
+    private __derive(opts: ConfigOptions): ConfigHandle<Schema>;
 
-    private __derive(nameOrOpts: string | ConfigOptions, layer?: Partial<Schema>, opts?:ConfigOptions): ConfigHandle<Schema> {
+    private __derive(nameOrOpts: string | ConfigOptions, layer?: Partial<Schema>, opts?: ConfigOptions): ConfigHandle<Schema> {
 
         const newLayers = Array.from(this.layers.entries())
             .reduce(
-                (acc, [name, layer])=>{
-                    acc[name]=layer;
+                (acc, [name, layer]) => {
+                    acc[name] = layer;
                     return acc;
                 }, {} as Record<LayerName, Partial<Schema>>);
 
         if (typeof nameOrOpts === 'object' && layer === undefined) {
             // called with opts only
 
-            const newOpts: ConfigOptions = Object.assign({}, {
-                notFoundHandler: this.notFoundHandler,
-            },nameOrOpts)
+            const newOpts: ConfigOptions = Object.assign({}, this.options, nameOrOpts)
 
             return LayeredConfig.fromLayers(
-                Object.entries(newLayers).map(([name, config])=> ({name, config})),
+                Object.entries(newLayers).map(([name, config]) => ({name, config})),
                 newOpts
             );
 
@@ -205,18 +247,14 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
 
             return LayeredConfig.fromLayers(
                 Object.entries(newLayers).map(([name, config]) => ({name, config})),
-                Object.assign({}, {
-                    notFoundHandler: this.notFoundHandler,
-                }, opts ?? {})
+                Object.assign({}, this.options, opts ?? {})
             );
         }
 
         return LayeredConfig.fromLayers(
             Object.entries(newLayers)
                 .map(([name, config]) => ({name, config})),
-            Object.assign({}, {
-                notFoundHandler: this.notFoundHandler,
-            }, opts ?? {})
+            Object.assign({}, this.options, opts ?? {})
         )
 
     }
@@ -227,6 +265,8 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
         const treeKeyParts = isString(key) ? splitDotExceptDouble(key) : [key];
 
         const layers = Array.from(this.layers.values()).reverse();
+
+        let resultingObject: any = {};
 
         let current: any = undefined;
         //execute for each layer
@@ -246,29 +286,39 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
                     break;
                 }
             }
-            //if we have something, return it, this is our value
-            if (found) {
+            //if we have a plain value, return it, this is our value
+            if (found && typeof currentLayer != 'object') {
                 current = currentLayer;
                 break;
+            } else {
+                //we have an object, merge it into the resulting object
+                if (found && typeof currentLayer === 'object') {
+                    current = undefined;
+                    resultingObject = {
+                        ...resultingObject,
+                        ...currentLayer
+                    }
+                }
             }
         }
         if (current !== undefined) {
             return current;
         }
-        if (fallback)
-            return fallback;
-        return this.notFoundHandler(key);
-    }
-
-    private __getFlat<K extends keyof Schema>(key: K | number | symbol, fallback?: unknown) {
-        for (const layer of Array.from(this.layers.values()).reverse()) {
-            if (layer && key in layer) {
-                return layer[key as K];
-            }
+        if (Object.keys(resultingObject).length > 0) {
+            return resultingObject;
         }
         if (fallback)
             return fallback;
-        return this.notFoundHandler(key);
+        return this.options.notFoundHandler(key);
+    }
+
+    private __getFlat<K extends keyof Schema>(key: K | number | symbol, fallback?: unknown) {
+        const value = this.flattened[key as K];
+        if (value !== undefined)
+            return value;
+        if (fallback)
+            return fallback;
+        return this.options.notFoundHandler(key);
     }
 
     /**

@@ -126,11 +126,11 @@ describe('inspection', () => {
         });
     });
     it('inspects `userContext` for compund object', () => {
-        const v = {userId: 'user123',roles: ['admin', 'user']};
+        const v = {userId: 'user123', roles: ['admin', 'user']};
         expect(cfg.__inspect('userContext')).toStrictEqual({
             "key": "userContext",
             "layers": [
-                {"isActive": true, "isPresent": true, "layer": "user", "value":v,},
+                {"isActive": true, "isPresent": true, "layer": "user", "value": v,},
                 {"isActive": false, "isPresent": false, "layer": "env", "value": undefined,},
                 {"isActive": false, "isPresent": false, "layer": "default", "value": undefined,},
             ],
@@ -154,32 +154,34 @@ type Labels = {
     button: string;
 }
 
-describe('with fallbacks',()=>{
+describe('with fallbacks', () => {
     const labels = LayeredConfig.fromLayers<Labels>([
-        {name:'default',   config:{button: "Accept cookies"}},
-        {name:'localized', config:{button: 'I would like the biscuits, please!'}},
-    ],{
-        notFoundHandler: key=>'<<'+key.toString()+'>>',
+        {name: 'default', config: {button: "Accept cookies"}},
+        {name: 'localized', config: {button: 'I would like the biscuits, please!'}},
+    ], {
+        notFoundHandler: key => '<<' + key.toString() + '>>',
     });
 
-    it('should use localized value',()=>{
+    it('should use localized value', () => {
         expect(labels.button).toBe('I would like the biscuits, please!');
-        expect(labels('button','xx')).toBe('I would like the biscuits, please!');
+        expect(labels('button', 'xx')).toBe('I would like the biscuits, please!');
         // @ts-ignore
         expect(labels.button2).toBe('<<button2>>');
         // @ts-ignore
         expect(labels['button2']).toBe('<<button2>>');
         // @ts-ignore
-        expect(labels('button2','cookie msg2')).toBe('cookie msg2');
+        expect(labels('button2', 'cookie msg2')).toBe('cookie msg2');
     })
 });
 
-describe('proxy handlers',()=>{
-    it('config is immutable',()=>{
-        expect(()=>Object.defineProperty(cfg,'foo',{})).toThrow();
-        expect(()=>{delete cfg.undef}).toThrow();
+describe('proxy handlers', () => {
+    it('config is immutable', () => {
+        expect(() => Object.defineProperty(cfg, 'foo', {})).toThrow();
+        expect(() => {
+            delete cfg.undef
+        }).toThrow();
     })
-    it('knows keys',()=>{
+    it('knows keys', () => {
         const keys = Object.keys(cfg);
         expect(keys).toEqual([
             'useMocks',
@@ -188,13 +190,13 @@ describe('proxy handlers',()=>{
             'apikey',
             'session',
             'userContext',
-            ]);
+        ]);
     })
 });
 
 describe('__derive', () => {
     it('should derive a new config with an added layer', () => {
-        const derived = cfg.__derive('feature', { apikey: 'feature-key' });
+        const derived = cfg.__derive('feature', {apikey: 'feature-key'});
         expect(derived.apikey).toBe('feature-key');
         // Original config remains unchanged
         expect(cfg.apikey).toBe('2137-dev-apikey');
@@ -212,22 +214,33 @@ describe('__derive', () => {
 
     it('should accept options and use a custom notFoundHandler', () => {
         const customHandler = (key: any) => `not found: ${key}`;
-        const derived = cfg.__derive({ notFoundHandler: customHandler });
+        const derived = cfg.__derive({notFoundHandler: customHandler});
         // @ts-expect-error: purposely accessing non-existent key
         expect(derived.nonexistent).toBe('not found: nonexistent');
     });
 
     it('should allow deriving with both layer and options', () => {
         const customHandler = (key: any) => `missing: ${key}`;
-        const derived = cfg.__derive('feature', { path: '/feature' }, { notFoundHandler: customHandler });
+        const derived = cfg.__derive('feature', {path: '/feature'}, {notFoundHandler: customHandler});
         expect(derived.path).toBe('/feature');
         // @ts-expect-error: purposely accessing non-existent key
         expect(derived.nonexistent).toBe('missing: nonexistent');
     });
 
     it('should not mutate the original config', () => {
-        const derived = cfg.__derive('feature', { apikey: 'new-key' });
+        const derived = cfg.__derive('feature', {apikey: 'new-key'});
         expect(cfg.apikey).toBe('2137-dev-apikey');
         expect(derived.apikey).toBe('new-key');
+    });
+});
+
+describe('Layer immutability', () => {
+    it('should throw when attempting to modify a frozen layer', () => {
+        const cfg = LayeredConfig.fromLayers<Schema>(layers);
+        const layer = cfg.__inspect('apikey').layers.find(l => l.layer === 'env');
+        expect(() => {
+            // Attempt to mutate the layer object
+            layer.value.apikey = 'hacked-key';
+        }).toThrow();
     });
 });

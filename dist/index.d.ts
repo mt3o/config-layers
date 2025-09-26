@@ -44,8 +44,9 @@ import type { LayerName, ConfigInspectionResult, ConfigOptions, ConfigHandle } f
  */
 export declare class LayeredConfig<Schema extends Record<string | symbol, any> = Record<string, any>> {
     private layers;
+    private flattened;
     private constructor();
-    private notFoundHandler;
+    private options;
     /**
      * Creates an instance of LayeredConfig from an array of layer objects.
      *

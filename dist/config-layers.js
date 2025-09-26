@@ -1,17 +1,33 @@
-function u(d) {
-  return typeof d == "string";
+function c(a) {
+  return typeof a == "string";
 }
-function f(d) {
-  return d.split(new RegExp("(?<!\\.)\\.(?!\\.)"));
+function p(a) {
+  return a.split(new RegExp("(?<!\\.)\\.(?!\\.)"));
 }
-class c {
+function d(a, r) {
+  for (const t in r)
+    Object.prototype.hasOwnProperty.call(r, t) && typeof r[t] == "object" && r[t] !== null && !Array.isArray(r[t]) ? (t in a || (a[t] = {}), d(a[t], r[t])) : a[t] = r[t];
+  return a;
+}
+function y(a) {
+  return a && typeof a == "object" && !Object.isFrozen(a) && (Object.getOwnPropertyNames(a).forEach((r) => {
+    const t = a[r];
+    t && typeof t == "object" && y(t);
+  }), Object.freeze(a)), a;
+}
+class v {
   layers;
-  constructor(t) {
-    this.layers = t;
+  flattened;
+  constructor(r, t = void 0) {
+    this.layers = r, this.flattened = Array.from(this.layers.values()).reduce((s, i) => d(s, i), {}), this.options = {
+      notFoundHandler: (s) => {
+        throw new Error(`Key not found: ${String(s)}`);
+      },
+      freeze: !0,
+      ...t ?? {}
+    };
   }
-  notFoundHandler = (t) => {
-    throw new Error(`Key not found: ${String(t)}`);
-  };
+  options;
   /**
    * Creates an instance of LayeredConfig from an array of layer objects.
    *
@@ -24,19 +40,20 @@ class c {
    * @see LayeredConfig
    *
    */
-  static fromLayers(t, s) {
-    const n = new c(
-      new Map(t.map((i) => [i.name, i.config]))
+  static fromLayers(r, t) {
+    const s = new v(
+      new Map(r.map((i) => [i.name, i.config])),
+      t
     );
-    return s?.notFoundHandler && (n.notFoundHandler = s.notFoundHandler), new Proxy(() => {
+    return y(s), new Proxy(() => {
     }, {
-      apply(i, e, r) {
-        const [o, a] = r;
-        return n.__withFallback(o, a);
+      apply(i, e, n) {
+        const [o, l] = n;
+        return s.__withFallback(o, l);
       },
       has(i, e) {
-        const r = u(e) ? f(e) : [e];
-        return r.length == 1 ? n.__getFlat(e) !== void 0 : r.length > 1 ? n.__getComplex(e) !== void 0 : !1;
+        const n = c(e) ? p(e) : [e];
+        return n.length == 1 ? s.__getFlat(e) !== void 0 : n.length > 1 ? s.__getComplex(e) !== void 0 : !1;
       },
       getOwnPropertyDescriptor(i, e) {
         return {
@@ -54,78 +71,74 @@ class c {
         return !1;
       },
       ownKeys() {
-        const e = Array.from(n.layers.values()).map((o) => Object.keys(o)), r = Array.from(
+        const e = Array.from(s.layers.values()).map((o) => Object.keys(o)), n = Array.from(
           new Set(e.flat())
         );
-        return { ...r, length: r.length };
+        return { ...n, length: n.length };
       },
-      get(i, e, r) {
+      get(i, e, n) {
         if (e === "__inspect")
-          return n.__inspect.bind(n);
+          return s.__inspect.bind(s);
         if (e === "__derive")
-          return n.__derive.bind(n);
-        const o = u(e) ? f(e) : [e];
+          return s.__derive.bind(s);
+        const o = c(e) ? p(e) : [e];
         if (o.length == 1)
-          return n.__getFlat(e);
+          return s.__getFlat(e);
         if (o.length > 1)
-          return n.__getComplex(e);
+          return s.__getComplex(e);
       }
     });
   }
-  __withFallback(t, s) {
-    return (u(t) ? f(t) : [t]).length == 1 ? this.__getFlat(t, s) : this.__getComplex(t, s);
+  __withFallback(r, t) {
+    return (c(r) ? p(r) : [r]).length == 1 ? this.__getFlat(r, t) : this.__getComplex(r, t);
   }
-  __derive(t, s, n) {
+  __derive(r, t, s) {
     const i = Array.from(this.layers.entries()).reduce(
-      (e, [r, o]) => (e[r] = o, e),
+      (e, [n, o]) => (e[n] = o, e),
       {}
     );
-    if (typeof t == "object" && s === void 0) {
-      const e = Object.assign({}, {
-        notFoundHandler: this.notFoundHandler
-      }, t);
-      return c.fromLayers(
-        Object.entries(i).map(([r, o]) => ({ name: r, config: o })),
+    if (typeof r == "object" && t === void 0) {
+      const e = Object.assign({}, this.options, r);
+      return v.fromLayers(
+        Object.entries(i).map(([n, o]) => ({ name: n, config: o })),
         e
       );
     }
-    return typeof t == "string" && s !== void 0 ? (i[t] = s, c.fromLayers(
-      Object.entries(i).map(([e, r]) => ({ name: e, config: r })),
-      Object.assign({}, {
-        notFoundHandler: this.notFoundHandler
-      }, n ?? {})
-    )) : c.fromLayers(
-      Object.entries(i).map(([e, r]) => ({ name: e, config: r })),
-      Object.assign({}, {
-        notFoundHandler: this.notFoundHandler
-      }, n ?? {})
+    return typeof r == "string" && t !== void 0 ? (i[r] = t, v.fromLayers(
+      Object.entries(i).map(([e, n]) => ({ name: e, config: n })),
+      Object.assign({}, this.options, s ?? {})
+    )) : v.fromLayers(
+      Object.entries(i).map(([e, n]) => ({ name: e, config: n })),
+      Object.assign({}, this.options, s ?? {})
     );
   }
-  __getComplex(t, s) {
-    const n = u(t) ? f(t) : [t], i = Array.from(this.layers.values()).reverse();
-    let e;
-    for (const r of i) {
-      if (!r) continue;
-      let o = r, a = !0;
-      for (const l of n)
-        if (o && l in o)
-          o = o[l];
+  __getComplex(r, t) {
+    const s = c(r) ? p(r) : [r], i = Array.from(this.layers.values()).reverse();
+    let e = {}, n;
+    for (const o of i) {
+      if (!o) continue;
+      let l = o, f = !0;
+      for (const u of s)
+        if (l && u in l)
+          l = l[u];
         else {
-          a = !1;
+          f = !1;
           break;
         }
-      if (a) {
-        e = o;
+      if (f && typeof l != "object") {
+        n = l;
         break;
-      }
+      } else
+        f && typeof l == "object" && (n = void 0, e = {
+          ...e,
+          ...l
+        });
     }
-    return e !== void 0 ? e : s || this.notFoundHandler(t);
+    return n !== void 0 ? n : Object.keys(e).length > 0 ? e : t || this.options.notFoundHandler(r);
   }
-  __getFlat(t, s) {
-    for (const n of Array.from(this.layers.values()).reverse())
-      if (n && t in n)
-        return n[t];
-    return s || this.notFoundHandler(t);
+  __getFlat(r, t) {
+    const s = this.flattened[r];
+    return s !== void 0 ? s : t || this.options.notFoundHandler(r);
   }
   /**
    * Inspects a configuration key, providing details about its value and source across layers.
@@ -133,18 +146,18 @@ class c {
    * @param key - The configuration key to inspect.
    * @returns An object containing inspection results, including the resolved value and layer details.
    */
-  __inspect(t) {
-    const s = {
-      key: t,
+  __inspect(r) {
+    const t = {
+      key: r,
       resolved: {
         value: void 0,
         source: ""
       },
       layers: []
-    }, n = u(t) ? f(t) : [t], i = Array.from(this.layers.keys()).reverse();
-    if (n.length < 1)
+    }, s = c(r) ? p(r) : [r], i = Array.from(this.layers.keys()).reverse();
+    if (s.length < 1)
       return {
-        key: t,
+        key: r,
         resolved: {
           value: void 0,
           source: ""
@@ -156,43 +169,43 @@ class c {
           isActive: !1
         }))
       };
-    if (n.length == 1) {
+    if (s.length == 1) {
       let e = !1;
-      for (const r of i) {
-        const o = this.layers.get(r), a = !!(o && t in o), l = a ? o?.[t] : void 0, v = a ? !e : !1;
-        s.layers.push({
-          layer: r,
-          value: a ? l : void 0,
-          isPresent: a,
-          isActive: v
-        }), v && !e && (s.resolved.value = l, s.resolved.source = r, e = !0);
+      for (const n of i) {
+        const o = this.layers.get(n), l = !!(o && r in o), f = l ? o?.[r] : void 0, u = l ? !e : !1;
+        t.layers.push({
+          layer: n,
+          value: l ? f : void 0,
+          isPresent: l,
+          isActive: u
+        }), u && !e && (t.resolved.value = f, t.resolved.source = n, e = !0);
       }
     }
-    if (n.length > 1)
+    if (s.length > 1)
       for (const e of i) {
-        let r = this.layers.get(e);
-        if (!r)
+        let n = this.layers.get(e);
+        if (!n)
           continue;
         let o = !0;
-        for (const l of n)
-          if (r && typeof r == "object" && l in r)
-            r = r[l];
+        for (const f of s)
+          if (n && typeof n == "object" && f in n)
+            n = n[f];
           else {
             o = !1;
             break;
           }
-        o || (r = void 0);
-        const a = o && r !== void 0;
-        s.layers.push({
+        o || (n = void 0);
+        const l = o && n !== void 0;
+        t.layers.push({
           layer: e,
-          value: a ? r : void 0,
+          value: l ? n : void 0,
           isPresent: o,
-          isActive: a && s.resolved.value === void 0
-        }), a && s.resolved.value === void 0 && (s.resolved.value = r, s.resolved.source = e);
+          isActive: l && t.resolved.value === void 0
+        }), l && t.resolved.value === void 0 && (t.resolved.value = n, t.resolved.source = e);
       }
-    return s;
+    return t;
   }
 }
 export {
-  c as LayeredConfig
+  v as LayeredConfig
 };

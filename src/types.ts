@@ -35,7 +35,12 @@ export type WithInspect<Schema> = {
 
 
 export type ConfigOptions = {
-    notFoundHandler?: NotFoundHandler
+    notFoundHandler: NotFoundHandler
+    /**
+     * Specifies whether the derived configuration should be frozen (immutable). If not set or set to true,
+     * the default behavior is to freeze the configuration.
+     */
+    freeze: boolean
 }
 
 /**
