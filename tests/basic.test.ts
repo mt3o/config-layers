@@ -150,6 +150,25 @@ describe('inspection', () => {
     });
 });
 
+describe('name escaping', () => {
+
+    const layers = [
+        {
+            name: "default", config: JSON.parse(`{
+    "regularName": "1", 
+    "special.name": "2"
+    }`)
+        },
+    ];
+
+    const cfg = LayeredConfig.fromLayers(layers);
+    it('handles double dot as escaped dot', () => {
+        expect(cfg['regularName']).toBe('1'); // works as expected
+        expect(cfg.regularName).toBe('1'); // works as expected
+        expect(cfg('special..name')).toBe('2'); // double dot avoids nesting
+    });
+});
+
 type Labels = {
     button: string;
 }
@@ -240,7 +259,8 @@ describe('Layer immutability', () => {
         const layer = cfg.__inspect('apikey').layers.find(l => l.layer === 'env');
         expect(() => {
             // Attempt to mutate the layer object
+            //@ts-ignore
             layer.value.apikey = 'hacked-key';
-        }).toThrow();
+        }).toThrow("Cannot create property 'apikey' on string '2137-dev-apikey'");
     });
 });

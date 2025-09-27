@@ -11,7 +11,50 @@ function isString(key: string | symbol | number) {
 
 function splitDotExceptDouble(str: string): string[] {
     // Split on '.' not preceded or followed by another '.'
-    return str.split(/(?<!\.)\.(?!\.)/);
+    return str.split(/(?<!\.)\.(?!\.)/).map(part=>{
+        //and remove the additional dot from the doubled parts
+        return part.replace(/([^,])\.([.]+[^,])/gu,"$1$2");
+    });
+}
+
+// in-source test suites
+// @ts-ignore
+if (import.meta.vitest) {
+// @ts-ignore
+    const {describe, it, expect} = import.meta.vitest;
+    describe('splitDotExceptDouble', () => {
+        it('should split on single dots', () => {
+            expect(splitDotExceptDouble('a.b.c')).toEqual(['a', 'b', 'c']);
+        });
+        it('should not split on double dots', () => {
+            expect(splitDotExceptDouble('special..name')).toEqual(['special.name']);
+            expect(splitDotExceptDouble('a..b.c')).toEqual(['a.b', 'c']);
+        });
+        it('should handle triple dots as two splits', () => {
+            expect(splitDotExceptDouble('a...b.c')).toEqual(['a..b', 'c']);
+        });
+        // it('should return the whole string if no dots', () => {
+        //     expect(splitDotExceptDouble('abc')).toEqual(['abc']);
+        // });
+        // it('should handle leading dot', () => {
+        //     expect(splitDotExceptDouble('.a.b')).toEqual(['', 'a', 'b']);
+        // });
+        // it('should handle trailing dot', () => {
+        //     expect(splitDotExceptDouble('a.b.')).toEqual(['a', 'b', '']);
+        // });
+        // it('should handle only dots', () => {
+        //     expect(splitDotExceptDouble('...')).toEqual(['..']);
+        // });
+        // it('should handle empty string', () => {
+        //     expect(splitDotExceptDouble('')).toEqual(['']);
+        // });
+        // it('should handle consecutive double dots', () => {
+        //     expect(splitDotExceptDouble('a..b..c')).toEqual(['a..b..c']);
+        // });
+        // it('should handle mixed single and double dots', () => {
+        //     expect(splitDotExceptDouble('a.b..c.d')).toEqual(['a', 'b..c', 'd']);
+        // });
+    });
 }
 
 function deepMerge<T extends object, U extends object>(target: T, source: U): T & U {
@@ -134,7 +177,7 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
      */
     public static fromLayers<Schema extends Record<string | symbol, any> = Record<string, any>>(
         layers: Array<{ name: LayerName, config: Partial<Schema> }>,
-        options?: ConfigOptions
+        options?: Partial<ConfigOptions>
     ) {
 
         const instance = new LayeredConfig<Schema>(
@@ -142,7 +185,8 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
             options
         );
 
-        deepFreeze(instance);
+        if(instance.options.freeze)
+            deepFreeze(instance);
 
 
         // noinspection JSUnusedGlobalSymbols
@@ -155,7 +199,7 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
             has(_target, key) {
                 const treeKeyParts = isString(key) ? splitDotExceptDouble(key) : [key];
                 if (treeKeyParts.length == 1) {
-                    return instance.__getFlat(key) !== undefined;
+                    return instance.__getFlat(treeKeyParts[0]) !== undefined;
                 }
                 if (treeKeyParts.length > 1) {
                     return instance.__getComplex(key) !== undefined;
@@ -197,7 +241,7 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
                 const treeKeyParts = isString(key) ? splitDotExceptDouble(key) : [key];
 
                 if (treeKeyParts.length == 1) {
-                    return instance.__getFlat(key);
+                    return instance.__getFlat(treeKeyParts[0]);
                 }
                 if (treeKeyParts.length > 1) {
                     return instance.__getComplex(key);
@@ -209,7 +253,7 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
     private __withFallback<K extends keyof Schema, T>(key: K | number | symbol, fallback: T): T | Partial<Schema> {
         const treeKeyParts = isString(key) ? splitDotExceptDouble(key) : [key];
         if (treeKeyParts.length == 1) {
-            return this.__getFlat(key, fallback);
+            return this.__getFlat(treeKeyParts[0], fallback);
         }
 
         return this.__getComplex(key, fallback);
@@ -218,10 +262,14 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
 
 
     private __derive(name: string, layer: Partial<Schema>): ConfigHandle<Schema>;
-    private __derive(name: string, layer: Partial<Schema>, opts: ConfigOptions): ConfigHandle<Schema>;
-    private __derive(opts: ConfigOptions): ConfigHandle<Schema>;
+    private __derive(name: string, layer: Partial<Schema>, opts: Partial<ConfigOptions>): ConfigHandle<Schema>;
+    private __derive(opts: Partial<ConfigOptions>): ConfigHandle<Schema>;
 
-    private __derive(nameOrOpts: string | ConfigOptions, layer?: Partial<Schema>, opts?: ConfigOptions): ConfigHandle<Schema> {
+    private __derive(
+        nameOrOpts: string | Partial<ConfigOptions>,
+        layer?: Partial<Schema>,
+        opts?: Partial<ConfigOptions>
+    ): ConfigHandle<Schema> {
 
         const newLayers = Array.from(this.layers.entries())
             .reduce(
