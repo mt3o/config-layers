@@ -1,4 +1,5 @@
 // Example: Validate a complex configuration object using Zod
+import {describe, it, expect} from 'vitest';
 import {z} from 'zod';
 
 // Define a complex configuration schema with Zod
@@ -82,6 +83,7 @@ const layers = [
                     enableBeta: true,
                     tags: ['alpha', 'beta'],
                 },
+
             },
             auth: {
                 jwtSecret: 'supersecretjwtkeythatislongenough',
@@ -102,16 +104,34 @@ import {LayeredConfig} from '../../dist/config-layers.js';
 
 const layered = LayeredConfig.fromLayers(layers);
 
-// console.log(Object.keys(layered.api));
-// console.log(Object.keys(layered.api.features));
-// console.log(layered.api);
+describe('validate with zod', () => {
 
-// Validate the resolved layered config object with zod
-try {
-    ConfigSchema.parse(
-        Object.fromEntries(Object.entries(layered))
-    );
-    console.log('Layered config is valid!');
-} catch (e) {
-    console.error('Layered config validation failed:', e.errors);
-}
+    it('has correct values and validates', () => {
+
+        // Validate the resolved layered config object with zod
+        expect(() => {
+            ConfigSchema.parse(
+                Object.fromEntries(Object.entries(layered))
+            );
+        }).not.toThrow();
+
+        //structure matches the schema for simple fields
+        expect(Object.keys(layered.api)).toStrictEqual(["timeout", "features", "url"]);
+        //structure matches the schema for nested fields
+        expect(Object.keys(layered.api.features)).toStrictEqual(["maxUsers", "tags", "enableBeta"]);
+        //values are correctly overridden from layers
+        expect(layered.api).toStrictEqual({
+            "features": {
+                "enableBeta": true,
+                "maxUsers": 50,
+                "tags": [
+                    "alpha",
+                    "beta",
+                ],
+            },
+            "timeout": 5000,
+            "url": "https://super.website.com/api",
+        });
+
+    });
+});
