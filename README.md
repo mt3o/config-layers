@@ -1,15 +1,6 @@
 # Config Layers
 
-Unopinionated TypeScript library for managing complex configuration objects with support for inspection, fallbacks, and immutability. Useful for applications that need to merge configuration from multiple sources (e.g., defaults, environment, country, region).
-
-## Features
-- Easy to integrate into any project
-- Layered configuration merging
-- Deep key access (dot notation)
-- Fallback values and custom not-found handlers
-- Configuration inspection (see from which layer the value comes from)
-- Immutable config proxy
-- TypeScript support
+Simple TypeScript library for managing complex configuration in your js/ts node/web projects.
 
 # Installation and basic usage
 
@@ -36,7 +27,26 @@ console.log(config('backendUrl', 'https://fallback.url')); // Access with fallba
 console.log(config.__inspect('apikey')); // Inspect which layer provided the value
 ```
 
+# Features
+- Easy to integrate into any project
+- Layered configuration merging
+- Deep key access (dot notation)
+- Fallback values and custom not-found handlers
+- Configuration inspection (see from which layer the value comes from)
+- Immutable config proxy
+- TypeScript support
+
+
+
 # Why?
+
+Config Layers is a TypeScript library for managing complex configuration objects with support for inspection, fallbacks, and immutability. Useful for applications that need to rely on configuration from multiple sources and detail level (e.g., defaults, environment, country, region, app template).
+
+The library was born out of real world needs, when working on projects with complex configuration requirements. It was written from scratch, but based on real experiences and conclusions, with fresh approach, not tainted by legacy decisions. It's not a corporate code that was open-sourced, but rather a personal project, aimed to address the actual needs, without having to satisfy budget constraints, sprint goal, lack of time for refactoring and other such nonsense. :-)
+
+Besides, it's far easier to point the new person to a library on github than to explain in-house code, even if it's documented in confluence, don't you think? ;-)
+
+The library is not _opinionated_, that means we don't force you to use any specific file structure, environment variable naming conventions, or configuration formats. You can integrate this library into any project structure and use it alongside your existing configuration management practices. It's up to you to decide how to source and organize your configuration data.
 
 In modern applications, configuration often comes from multiple sources: some default settings, environment-specific overrides, user-specific preferences, etc. Managing these layers manually can lead to complex and error-prone code. 
 
@@ -75,7 +85,7 @@ type Config = {
 }
 ```
 
-This use case can't be handled with simple object-spread approach. It doesn't scale well. You would need to write custom merging logic for nested objects (or use lodash merge), or and it becomes hard to track which config source provided which value. That's why we implemented the inspection feature. 
+This use case can't be handled with simple object-spread approach. It doesn't scale well. You would need to write custom merging logic for nested objects (or use lodash merge), and eventually it becomes difficult to track which value comes from which config layer. That's why we implemented the inspection feature.
 
 On the other hand, using solutions like AppConfig enforces you to jump in with both feet, to 100% adopt their way of doing things, and it's not always feasible. For local development and quick prototyping - AppConfig is troublesome, for small projects - it's overkill. Feature flag solutions like LaunchDarkly are great for toggling features, but not for managing complex configuration objects.
 
@@ -227,8 +237,8 @@ expect(custom.nonexistent).toBe('N/A');
 ```
 
 #### API
-- `cfg.__derive(layerName, layerConfig)`: Returns a new config with the given layer added or replaced.
 - `cfg.__derive(options)`: Returns a new config with new options (e.g., a custom notFoundHandler).
+- `cfg.__derive(layerName, layerConfig)`: Returns a new config with the given layer added or replaced.
 - `cfg.__derive(layerName, layerConfig, options)`: Returns a new config with both a new/overridden layer and new options.
 
 The original config is never mutated. All derived configs are independent proxies.

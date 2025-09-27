@@ -102,9 +102,9 @@ import {LayeredConfig} from '../../dist/config-layers.js';
 
 const layered = LayeredConfig.fromLayers(layers);
 
-console.log(Object.keys(layered.api));
-console.log(Object.keys(layered.api.features));
-console.log(layered.api);
+// console.log(Object.keys(layered.api));
+// console.log(Object.keys(layered.api.features));
+// console.log(layered.api);
 
 // Validate the resolved layered config object with zod
 try {
