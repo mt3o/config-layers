@@ -7,7 +7,7 @@ Unopinionated TypeScript library for managing layered configuration objects with
 - Deep key access (dot notation)
 - Fallback values and custom not-found handlers
 - Configuration inspection (see which layer a value comes from)
-- Immutable config proxy
+- Immutable config proxy, frozen config object
 - TypeScript support
 
 ## Installation
