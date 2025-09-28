@@ -1,0 +1,8 @@
+apiUrl: https://api.example.com
+timeout: 5000
+features:
+  darkMode: false
+  notifications: true
+logging:
+  level: info
+  format: json

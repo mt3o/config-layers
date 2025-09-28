@@ -1,0 +1,4 @@
+apiUrl: https://dev-api.example.com
+timeout: 10000
+logging:
+  level: debug

@@ -48,9 +48,9 @@ export type ConfigOptions = {
  */
 export type WithDerive<Schema extends Record<string | symbol, any> = Record<string, any>> = {
   __derive: {
-    (opts: ConfigOptions): ConfigHandle<Schema>;
+    (opts: Partial<ConfigOptions>): ConfigHandle<Schema>;
     (name: string, layer: Partial<Schema>): ConfigHandle<Schema>;
-    (name: string, layer: Partial<Schema>, opts: ConfigOptions): ConfigHandle<Schema>;
+    (name: string, layer: Partial<Schema>, opts: Partial<ConfigOptions>): ConfigHandle<Schema>;
   }
 }
 

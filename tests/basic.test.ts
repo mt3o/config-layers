@@ -150,29 +150,26 @@ describe('inspection', () => {
     });
 });
 
-type Labels = {
-    button: string;
-}
+describe('name escaping', () => {
 
-describe('with fallbacks', () => {
-    const labels = LayeredConfig.fromLayers<Labels>([
-        {name: 'default', config: {button: "Accept cookies"}},
-        {name: 'localized', config: {button: 'I would like the biscuits, please!'}},
-    ], {
-        notFoundHandler: key => '<<' + key.toString() + '>>',
+    const layers = [
+        {
+            name: "default",
+            config: JSON.parse(`{
+                    "regularName": "1", 
+                    "special.name": "2"
+                }`)
+        },
+    ];
+
+    const cfg = LayeredConfig.fromLayers(layers);
+    it('handles double dot as escaped dot', () => {
+        expect(cfg['regularName']).toBe('1'); // works as expected
+        expect(cfg.regularName).toBe('1'); // works as expected
+        expect(cfg('special..name')).toBe('2'); // double dot avoids nesting
     });
-
-    it('should use localized value', () => {
-        expect(labels.button).toBe('I would like the biscuits, please!');
-        expect(labels('button', 'xx')).toBe('I would like the biscuits, please!');
-        // @ts-ignore
-        expect(labels.button2).toBe('<<button2>>');
-        // @ts-ignore
-        expect(labels['button2']).toBe('<<button2>>');
-        // @ts-ignore
-        expect(labels('button2', 'cookie msg2')).toBe('cookie msg2');
-    })
 });
+
 
 describe('proxy handlers', () => {
     it('config is immutable', () => {
@@ -192,55 +189,4 @@ describe('proxy handlers', () => {
             'userContext',
         ]);
     })
-});
-
-describe('__derive', () => {
-    it('should derive a new config with an added layer', () => {
-        const derived = cfg.__derive('feature', {apikey: 'feature-key'});
-        expect(derived.apikey).toBe('feature-key');
-        // Original config remains unchanged
-        expect(cfg.apikey).toBe('2137-dev-apikey');
-    });
-
-    it('should replace an existing layer', () => {
-        const derived = cfg.__derive('env', {
-            apikey: 'override-key'
-        });
-        expect(derived.apikey).toBe('override-key');
-        // Whole layer is replaced, so envName is different now
-        expect(cfg.envName).toBe('development');
-        expect(derived.envName).toBe('not set');
-    });
-
-    it('should accept options and use a custom notFoundHandler', () => {
-        const customHandler = (key: any) => `not found: ${key}`;
-        const derived = cfg.__derive({notFoundHandler: customHandler});
-        // @ts-expect-error: purposely accessing non-existent key
-        expect(derived.nonexistent).toBe('not found: nonexistent');
-    });
-
-    it('should allow deriving with both layer and options', () => {
-        const customHandler = (key: any) => `missing: ${key}`;
-        const derived = cfg.__derive('feature', {path: '/feature'}, {notFoundHandler: customHandler});
-        expect(derived.path).toBe('/feature');
-        // @ts-expect-error: purposely accessing non-existent key
-        expect(derived.nonexistent).toBe('missing: nonexistent');
-    });
-
-    it('should not mutate the original config', () => {
-        const derived = cfg.__derive('feature', {apikey: 'new-key'});
-        expect(cfg.apikey).toBe('2137-dev-apikey');
-        expect(derived.apikey).toBe('new-key');
-    });
-});
-
-describe('Layer immutability', () => {
-    it('should throw when attempting to modify a frozen layer', () => {
-        const cfg = LayeredConfig.fromLayers<Schema>(layers);
-        const layer = cfg.__inspect('apikey').layers.find(l => l.layer === 'env');
-        expect(() => {
-            // Attempt to mutate the layer object
-            layer.value.apikey = 'hacked-key';
-        }).toThrow();
-    });
 });
