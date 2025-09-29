@@ -1,3 +1,7 @@
+#Ignore lock files, as libraries shouldn't impose specific version dependencies if possible
+package.json-lock
+pnpm-lock.yaml
+
 # Logs
 logs
 *.log

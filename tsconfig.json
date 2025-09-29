@@ -10,7 +10,6 @@
     "outDir": "./dist",
     /* Bundler mode */
     "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "forceConsistentCasingInFileNames": true,
     "moduleDetection": "force",

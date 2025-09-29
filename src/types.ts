@@ -33,6 +33,16 @@ export type WithInspect<Schema> = {
     __inspect: <K extends keyof Schema>(key: K | string | number) => ConfigInspectionResult<Schema, Schema[K]>
 }
 
+/**
+ * An interface for retrieving all values associated with a config key across all layers.
+ */
+export type WithGetAll<Schema> = {
+    getAll: <K extends keyof Schema>(key: K | string | number) => Array<{
+        layer: LayerName;
+        value: Schema[K] | undefined | Partial<Schema>;
+    }>;
+}
+
 
 export type ConfigOptions = {
     notFoundHandler: NotFoundHandler
@@ -63,4 +73,5 @@ export type ConfigHandle<Schema  extends Record<string | symbol, any> = Record<s
     & WithInspect<Schema>
     & WithHandler<Schema>
     & WithDerive<Schema>
+    & WithGetAll<Schema>
 ;

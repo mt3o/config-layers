@@ -56,6 +56,21 @@ describe('Config layers', () => {
     });
 });
 
+describe('getAll', () => {
+    it('collects matching elements across all layers', () => {
+        expect(cfg.getAll('useMocks')).toStrictEqual([
+            {"layer": "env", "value": true,},
+            {"layer": "default", "value": false,},
+        ]);
+        expect(cfg.getAll('envName')).toStrictEqual([
+            {layer: 'env', value: 'development'},
+            {layer: 'default', value: 'not set'},
+        ]);
+        expect(cfg.getAll('apikey')).toStrictEqual([
+            {layer: 'env', value: '2137-dev-apikey'},
+        ]);
+    })
+});
 
 describe('inspection', () => {
 

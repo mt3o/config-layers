@@ -17,9 +17,9 @@ type Schema = {  apikey: string; backendUrl: string };
 ```
 Having defined the config schema, you can load the config and use it in your application:
 ```ts
-export const config = LayeredConfig.fromLayers<Schema>([
-  { name: "default", config: JSON.parse(fs.readFileSync('config/default.json', 'utf-8')) },
-  { name: "env", config: {  apikey: process.env.APIKEY }},
+export const config = LayeredConfig.fromLayers<Schema>([             
+  { name: "default", config: JSON.parse(fs.readFileSync('config/default.json', 'utf-8')) },  //least priority
+  { name: "env", config: {  apikey: process.env.APIKEY }}, //last = highest priority
 ]);
 
 console.log(config.apikey); // Access config values directly
@@ -27,24 +27,29 @@ console.log(config('backendUrl', 'https://fallback.url')); // Access with fallba
 console.log(config.__inspect('apikey')); // Inspect which layer provided the value
 ```
 
+This library lets you organize your config settings into named layers, loaded from lowest to highest priority. If a setting exists in a higher layer, it will be used; otherwise, the next (lower) layer is checked. This helps you combine config from different places into one object.
+
+Defaults can have the lowest priority, while environment-specific values (like from dotenv files or environment variables) can override them.                                        
+
+All the merging is handled for you in a type-safe way. You define the config structure using a TypeScript type or interface. You can also use validation libraries like Zod or JSON Schema if you want, but it’s not required. If you use any instead of a type, you lose type safety, which is one of the main benefits of using TypeScript. For runtime validation, see the [Zod validation](examples/zod-validate) example.
+
 # Features
 - Easy to integrate into any project
 - Layered configuration merging
 - Deep key access (dot notation)
 - Fallback values and custom not-found handlers
-- Configuration inspection (see from which layer the value comes from)
+- Configuration inspection (see from which layer the valueF comes from)
 - Immutable config proxy, frozen config object
 - TypeScript support
 
 
-
 # Why?
 
-Config Layers is a TypeScript library for managing complex configuration objects with support for inspection, fallbacks, and immutability. Useful for applications that need to rely on configuration from multiple sources and detail level (e.g., defaults, environment, country, region, app template).
+Config Layers is a TypeScript library for managing complex configuration objects with support for inspection, fallbacks, and immutability. Useful for applications that need to rely on configuration from multiple sources and detail level (e.g., defaults, environment, country, region, page template).
 
 The library was born out of real world needs, when working on projects with complex configuration requirements. It was written from scratch, but based on real experiences and conclusions, with fresh approach, not tainted by legacy decisions. It's not a corporate code that was open-sourced, but rather a personal project, aimed to address the actual needs, without having to satisfy budget constraints, sprint goal, lack of time for refactoring and other such nonsense. :-)
 
-Besides, it's far easier to point the new person to a library on github than to explain in-house code, even if it's documented in confluence, don't you think? ;-)
+Besides, it's far easier to point the new person to a library on github than to explain in-house code, even if it's well documented in the Confluence, don't you think? ;-)
 
 The library is not _opinionated_, that means we don't force you to use any specific file structure, environment variable naming conventions, or configuration formats. You can integrate this library into any project structure and use it alongside your existing configuration management practices. It's up to you to decide how to source and organize your configuration data.
 
@@ -56,9 +61,9 @@ Why not just use object spread or lodash merge? Like this:
 
 ```
 export const config = {
-  ...layers[0].config,
+  ...layers[0].config, //least priority
   ...layers[1].config,
-  ...layers[2].config,
+  ...layers[2].config, //highest priority
 }
 ```
 
@@ -85,9 +90,9 @@ type Config = {
 }
 ```
 
-This use case can't be handled with simple object-spread approach. It doesn't scale well. You would need to write custom merging logic for nested objects (or use lodash merge), and eventually it becomes difficult to track which value comes from which config layer. That's why we implemented the inspection feature.
+This use case can't be handled with simple object-spread approach. It doesn't scale well. You would need to write custom merging logic for nested objects (or use lodash merge), and eventually it becomes difficult to track which value comes from which config layer. That's why the inspection feature was implemented.
 
-On the other hand, using solutions like AppConfig enforces you to jump in with both feet, to 100% adopt their way of doing things, and it's not always feasible. For local development and quick prototyping - AppConfig is troublesome, for small projects - it's overkill. Feature flag solutions like LaunchDarkly are great for toggling features, but not for managing complex configuration objects.
+On the other hand, using solutions like AWS AppConfig enforces you to jump in with both feet, to 100% adopt their way of doing things, and it's not always feasible. For local development and quick prototyping - AppConfig is troublesome, for small projects - it's overkill. Feature flag solutions like LaunchDarkly are great for toggling features with a UI, but not for managing complex configuration objects with database credentials, api keys and service secrets.
 
 ## Key benefits
 
@@ -118,22 +123,42 @@ type Schema = {
 };
 
 const layers = [
-  { name: "default", config: { useMocks: false, } },
+  { name: "default", config: { useMocks: false, } }, //least priority
   { name: "env", config: { apikey: "2137-dev-apikey", useMocks: true } },
-  { name: "user", config: { userContext: { userId: "user123", roles: ["admin", "user"] } } },
+  { name: "user", config: { userContext: { userId: "user123", roles: ["admin", "user"] } } }, //highest priority
 ];
 
 const cfg = LayeredConfig.fromLayers<Schema>(layers);
 
 //It resolves from the highest priority layer
-expect(cfg.apikey).toBe('2137-dev-apikey'); // defined only in `env`
-expect(cfg.useMocks).toBe(true); // `env` overrides `default` => true
+expect(cfg.apikey).toBe('2137-dev-apikey'); // defined only in `env` layer
+expect(cfg.useMocks).toBe(true); // `env` layer overrides `default` => true
 expect(cfg.userContext.userId).toBe('user123'); // compound values are also accepted
 ```
 
-Please note that we don't validate your config objects against the schema at runtime. The library relies on TypeScript's static type checking to ensure that the configuration objects conform to the specified schema. This means that its possible to inject invalid config objects at runtime if you bypass TypeScript checks. Always ensure that your configuration objects match the expected types to avoid runtime errors. It must be relatively easy to employ i.e. [Zod] to validate the config object, either as whole or layer by layer, and it is with Layered Config. Consult the [examples](./examples) folder for more usage patterns.
-### Fallbacks and Not Found Handler
+Please note that we don't validate your config objects against the schema at runtime. The library relies on TypeScript's static type checking to ensure that the configuration objects conform to the specified schema. This means that its possible to inject invalid config objects at runtime - bypassing TypeScript checks. Always ensure that your configuration objects match the expected types to avoid runtime errors. In yout code it must be relatively easy to employ i.e. [Zod](https://zod.dev/) to validate the config object, either as whole or layer by layer, and it is with Layered Config. Consult the [examples](./examples) folder for more usage patterns.
 
+### Config options
+
+#### Not Found Handler
+
+In typical scenario, when config value is not found, you expect an error to be thrown. This is the default behavior. However, in some cases you might want to provide a fallback value or handle missing keys gracefully. You can do this by providing a custom `notFoundHandler` function when creating the layered config.
+
+```typescript :@import.meta.vitest
+//import {LayeredConfig} from 'config-layers';
+const {LayeredConfig} = await import('./dist/config-layers.js');
+const cfg = LayeredConfig.fromLayers<{apikey: string}>(
+  [{ name: "default", config: {} }], //the config is empty in this example
+  {
+    notFoundHandler: key => {
+      return 'XD';
+    }
+  }
+);
+expect(cfg.anything).toBe('XD'); // the handler is called for any missing key
+```
+
+#### Fallbacks
 The library is suitable for localization or similar use cases. It provides graceful handling of missing keys via fallbacks or a custom not-found handler.
 
 ```typescript :@import.meta.vitest

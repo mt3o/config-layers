@@ -1,0 +1,15 @@
+{
+  "name": "Additional Examples",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "validate": "vitest"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9"
+  }
+}

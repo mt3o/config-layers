@@ -237,6 +237,9 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
                 if (key === '__derive') {
                     return instance.__derive.bind(instance);
                 }
+                if(key==='getAll'){
+                    return instance.__getAll.bind(instance);
+                }
 
                 const treeKeyParts = isString(key) ? splitDotExceptDouble(key) : [key];
 
@@ -307,6 +310,36 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
 
     }
 
+
+    private __getAll<K extends keyof Schema>(key: K|number|symbol){
+        //iterate over all layers in precedence order and collect values for the key
+        const treeKeyParts = isString(key) ? splitDotExceptDouble(key) : [key];
+
+        const layers = Array.from(this.layers.entries()).reverse() as Array<[LayerName, Partial<Schema>]>;
+
+        const results: Array<{layer: LayerName, value: any}> = [];
+
+        for(const [layerName, layer] of layers){
+            if(!layer) continue;
+
+            let currentLayer: any = layer;
+            let found = true;
+            //For each part of the key, try to nest into the object
+            for (const part of treeKeyParts) {
+                //execute nesting into the subtree
+                if (currentLayer && part in currentLayer) {
+                    currentLayer = currentLayer[part];
+                } else {
+                    found = false;
+                    break;
+                }
+            }
+            if(found){
+                results.push({layer: layerName, value: currentLayer});
+            }
+        }
+        return results;
+    }
 
     private __getComplex<K extends keyof Schema>(key: K | number | symbol, fallback?: unknown) {
 
