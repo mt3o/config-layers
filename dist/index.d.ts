@@ -65,6 +65,7 @@ export declare class LayeredConfig<Schema extends Record<string | symbol, any> =
     }>, options?: Partial<ConfigOptions>): ConfigHandle<Schema>;
     private __withFallback;
     private __derive;
+    private __getAll;
     private __getComplex;
     private __getFlat;
     /**

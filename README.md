@@ -187,7 +187,18 @@ expect(labels.button2).toBe('<<button2>>');
 
 ### Special names
 
-The config proxy provides a special method: `__inspect`, therefore it's a reserved word. It's prefixed with double underscore to avoid name collisions with your config keys. If you need to use keys starting with double underscore, consider using the callback notation. If your config keys must rely on dots within flat array, use the callback notation as well and double the dots in your code.
+The config proxy provides a few sepcial methods to assist you. 
+
+- `__inspect` - to inspect which layer provided the value for a given key
+- `__derive` - to derive a new config with additional/overridden layers or options
+- `get` - callback notation to get a value, with optional fallback
+- `getAll` - callback notation to get all values for a key, from all layers, and return them as an `Array<{layer: string, value: any}>` so that you can easily unpack them
+
+These words are resered, so you can't create config keys with these names. 
+
+### Inspecting Configuration
+
+The inspection special word is prefixed with double underscore to avoid name collisions with your config keys. If you need to use keys starting with double underscore, consider using the callback notation. If your config keys must rely on dots within flat array, use the callback notation as well and double the dots in your code.
 
 ```typescript :@import.meta.vitest
 //import {LayeredConfig} from 'config-layers';
@@ -207,7 +218,7 @@ expect(cfg.regularName).toBe('1'); // works as expected
 expect(cfg('special..name')).toBe('2'); // double dot avoids nesting
 ```
 
-### Inspecting Configuration
+
 ```typescript :@import.meta.vitest
 //import {LayeredConfig} from 'config-layers';
 const {LayeredConfig} = await import('./dist/config-layers.js');
@@ -269,6 +280,57 @@ expect(custom.nonexistent).toBe('N/A');
 The original config is never mutated. All derived configs are independent proxies.
 
 Consult the [unit tests](./tests/basic.test.ts) and [examples](./examples) folder for more usage patterns.
+      
+### Accessing config values
+
+You can access config values directly as properties, with index access, or use the callback notation to provide a fallback value.
+
+```typescript 
+cfg.apikey; // direct property access
+cfg['apikey']; // index access
+cfg('apikey'); // callback notation
+cfg('apikey', 'default-apikey'); // with fallback
+
+cfg.nested.field; // direct property access
+cfg['nested.field']; // index access
+cfg('nested.field'); // callback notation
+cfg('nested.field', 'default-value'); // with fallback
+```
+In case your config defines values that are arrays, the simple access - returns only the highest priority value. If you need to get all values from all layers, use the `getAll` special method.
+
+```typescript
+cfg.getAll('arrayKey'); // returns Array<{layer: string, value: any}>
+cfg.getAll('enabled.features').map(item=>item.value); // get only the values, as array of arrays
+```
+
+To flatten the array of arrays, use flatMap
+
+```typescript :@import.meta.vitest
+const {LayeredConfig} = await import('./dist/config-layers.js');
+const layers = [
+  { name: "1", config: { "features": ["f1", "f2","f4"] } },
+  { name: "2", config: {"features": ["f3"] } } ,
+  { name: "3", config: {"features": ["f3","f4", "f5"] } },
+];
+const cfg = LayeredConfig.fromLayers<{features: string[]}>(layers);
+expect(cfg.features).toEqual(['f3', 'f4', 'f5']); // highest priority only
+//get all values from all layers
+expect(cfg.getAll('features').map(item=>item.value)).toEqual([
+  ['f3','f4','f5'],
+  ['f3'],
+  ['f1','f2','f4'],
+]);
+//flatten the array of arrays with flatMap()
+expect(cfg.getAll('features').flatMap(item=>item.value)).toEqual([
+  'f3','f4','f5',
+  'f3',
+  'f1','f2','f4',
+]);
+//Get unique values only, with help of the Set() and flatmap()
+expect(Array.from(new Set(
+    cfg.getAll('features').flatMap(item=>item.value)
+))).toStrictEqual(['f3','f4','f5','f1','f2']);
+```
 
 ## API
 - `LayeredConfig.fromLayers(layers, options?)`: Create a layered config proxy.

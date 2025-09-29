@@ -70,7 +70,7 @@ const cfg = LayeredConfig.fromLayers<ProxySetup>([
             password: ()=>process.env.DB_PASSWORD || 'defaultpassword',
             name: 'appdb'
         },
-        authentication_cookie: process.env.AUTH_COOKIE,
+        authentication_cookie: process.env.AUTH_COOKIE || 'SESSION=abcdef1234567890',
     }},
 ]);
 
