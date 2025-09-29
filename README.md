@@ -108,7 +108,7 @@ NOTE: Examples use dynamic imports due to [Vitest doctest](https://github.com/ss
 Feel free to import traditionally or dynamically as shown in the examples.
 
 
-### Basic [README.md](README.md)Example
+### Basic Example
 ```typescript :@import.meta.vitest
 //import {LayeredConfig} from 'config-layers';
 const {LayeredConfig} = await import('./dist/config-layers.js');
