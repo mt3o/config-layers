@@ -1,11 +1,13 @@
 {
   "name": "config-layers",
-  "private": true,
+  "private": false,
   "version": "0.0.2",
   "type": "module",
   "main": "dist/config-layers.js",
+  "types": "./dist/types.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/types.d.ts",
       "import": "./dist/config-layers.js",
       "require": "./dist/config-layers.cjs"
     },
@@ -41,9 +43,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/wmt3o/config-layers.git"
+    "url": "git+https://github.com/wmt3o/config-layers.git"
   },
   "homepage": "https://github.com/mt3o/config-layers#readme",
+  "dependencies": {},
   "devDependencies": {
     "@types/node": "^24.5.2",
     "rimraf": "^6.0.1",

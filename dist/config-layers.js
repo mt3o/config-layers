@@ -1,42 +1,67 @@
-function c(a) {
-  return typeof a == "string";
+function isString(key) {
+  return typeof key === "string";
 }
-function f(a) {
-  return a.split(new RegExp("(?<!\\.)\\.(?!\\.)")).map((e) => e.replace(/([^,])\.([.]+[^,])/gu, "$1$2"));
+function splitDotExceptDouble(str) {
+  return str.split(new RegExp("(?<!\\.)\\.(?!\\.)")).map((part) => {
+    return part.replace(/([^,])\.([.]+[^,])/gu, "$1$2");
+  });
 }
 if (import.meta.vitest) {
-  const { describe: a, it: e, expect: t } = import.meta.vitest;
-  a("splitDotExceptDouble", () => {
-    e("should split on single dots", () => {
-      t(f("a.b.c")).toEqual(["a", "b", "c"]);
-    }), e("should not split on double dots", () => {
-      t(f("special..name")).toEqual(["special.name"]), t(f("a..b.c")).toEqual(["a.b", "c"]);
-    }), e("should handle triple dots as two splits", () => {
-      t(f("a...b.c")).toEqual(["a..b", "c"]);
+  const { describe, it, expect } = import.meta.vitest;
+  describe("splitDotExceptDouble", () => {
+    it("should split on single dots", () => {
+      expect(splitDotExceptDouble("a.b.c")).toEqual(["a", "b", "c"]);
+    });
+    it("should not split on double dots", () => {
+      expect(splitDotExceptDouble("special..name")).toEqual(["special.name"]);
+      expect(splitDotExceptDouble("a..b.c")).toEqual(["a.b", "c"]);
+    });
+    it("should handle triple dots as two splits", () => {
+      expect(splitDotExceptDouble("a...b.c")).toEqual(["a..b", "c"]);
     });
   });
 }
-function v(a, e) {
-  for (const t in e)
-    Object.prototype.hasOwnProperty.call(e, t) && typeof e[t] == "object" && e[t] !== null && !Array.isArray(e[t]) ? (t in a || (a[t] = {}), v(a[t], e[t])) : a[t] = e[t];
-  return a;
+function deepMerge(target, source) {
+  for (const key in source) {
+    if (Object.prototype.hasOwnProperty.call(source, key) && typeof source[key] === "object" && source[key] !== null && !Array.isArray(source[key])) {
+      if (!(key in target)) {
+        target[key] = {};
+      }
+      deepMerge(target[key], source[key]);
+    } else {
+      target[key] = source[key];
+    }
+  }
+  return target;
 }
-function y(a) {
-  return a && typeof a == "object" && !Object.isFrozen(a) && (Object.getOwnPropertyNames(a).forEach((e) => {
-    const t = a[e];
-    t && typeof t == "object" && y(t);
-  }), Object.freeze(a)), a;
+function deepFreeze(obj) {
+  if (obj && typeof obj === "object" && !Object.isFrozen(obj)) {
+    Object.getOwnPropertyNames(obj).forEach((prop) => {
+      const value = obj[prop];
+      if (value && typeof value === "object") {
+        deepFreeze(value);
+      }
+    });
+    Object.freeze(obj);
+  }
+  return obj;
 }
-class d {
+class LayeredConfig {
   layers;
   flattened;
-  constructor(e, t = void 0) {
-    this.layers = e, this.flattened = Array.from(this.layers.values()).reduce((n, i) => v(n, i), {}), this.options = {
-      notFoundHandler: (n) => {
-        throw new Error(`Key not found: ${String(n)}`);
+  constructor(layers, options = void 0) {
+    this.layers = layers;
+    this.flattened = Array.from(this.layers.values()).reduce((acc, layer) => {
+      return deepMerge(acc, layer);
+    }, {});
+    this.options = {
+      ...{
+        notFoundHandler: (key) => {
+          throw new Error(`Key not found: ${String(key)}`);
+        },
+        freeze: true
       },
-      freeze: !0,
-      ...t ?? {}
+      ...options ?? {}
     };
   }
   options;
@@ -52,124 +77,175 @@ class d {
    * @see LayeredConfig
    *
    */
-  static fromLayers(e, t) {
-    const n = new d(
-      new Map(e.map((i) => [i.name, i.config])),
-      t
+  static fromLayers(layers, options) {
+    const instance = new LayeredConfig(
+      new Map(layers.map((l) => [l.name, l.config])),
+      options
     );
-    return n.options.freeze && y(n), new Proxy(() => {
+    if (instance.options.freeze)
+      deepFreeze(instance);
+    return new Proxy(() => {
     }, {
-      apply(i, r, s) {
-        const [o, l] = s;
-        return n.__withFallback(o, l);
+      apply(_target, _this, argArray) {
+        const [key, fallback] = argArray;
+        return instance.__withFallback(key, fallback);
       },
-      has(i, r) {
-        const s = c(r) ? f(r) : [r];
-        return s.length == 1 ? n.__getFlat(s[0]) !== void 0 : s.length > 1 ? n.__getComplex(r) !== void 0 : !1;
+      has(_target, key) {
+        const treeKeyParts = isString(key) ? splitDotExceptDouble(key) : [key];
+        if (treeKeyParts.length == 1) {
+          return instance.__getFlat(treeKeyParts[0]) !== void 0;
+        }
+        if (treeKeyParts.length > 1) {
+          return instance.__getComplex(key) !== void 0;
+        }
+        return false;
       },
-      getOwnPropertyDescriptor(i, r) {
+      getOwnPropertyDescriptor(_target, _prop) {
         return {
-          enumerable: !0,
-          configurable: !0
+          enumerable: true,
+          configurable: true
         };
       },
-      deleteProperty(i, r) {
-        return !1;
+      deleteProperty(_target, _prop) {
+        return false;
       },
       set() {
-        return !1;
+        return false;
       },
       defineProperty() {
-        return !1;
+        return false;
       },
       ownKeys() {
-        const r = Array.from(n.layers.values()).map((o) => Object.keys(o)), s = Array.from(
-          new Set(r.flat())
+        const layers2 = Array.from(instance.layers.values());
+        const allKeys = layers2.map((l) => Object.keys(l));
+        const keys = Array.from(
+          new Set(allKeys.flat())
         );
-        return { ...s, length: s.length };
+        return { ...keys, length: keys.length };
       },
-      get(i, r, s) {
-        if (r === "__inspect")
-          return n.__inspect.bind(n);
-        if (r === "__derive")
-          return n.__derive.bind(n);
-        if (r === "getAll")
-          return n.__getAll.bind(n);
-        const o = c(r) ? f(r) : [r];
-        if (o.length == 1)
-          return n.__getFlat(o[0]);
-        if (o.length > 1)
-          return n.__getComplex(r);
+      get(_target, key, _receiver) {
+        if (key === "__inspect") {
+          return instance.__inspect.bind(instance);
+        }
+        if (key === "__derive") {
+          return instance.__derive.bind(instance);
+        }
+        if (key === "getAll") {
+          return instance.__getAll.bind(instance);
+        }
+        const treeKeyParts = isString(key) ? splitDotExceptDouble(key) : [key];
+        if (treeKeyParts.length == 1) {
+          return instance.__getFlat(treeKeyParts[0]);
+        }
+        if (treeKeyParts.length > 1) {
+          return instance.__getComplex(key);
+        }
       }
     });
   }
-  __withFallback(e, t) {
-    const n = c(e) ? f(e) : [e];
-    return n.length == 1 ? this.__getFlat(n[0], t) : this.__getComplex(e, t);
+  __withFallback(key, fallback) {
+    const treeKeyParts = isString(key) ? splitDotExceptDouble(key) : [key];
+    if (treeKeyParts.length == 1) {
+      return this.__getFlat(treeKeyParts[0], fallback);
+    }
+    return this.__getComplex(key, fallback);
   }
-  __derive(e, t, n) {
-    const i = Array.from(this.layers.entries()).reduce(
-      (r, [s, o]) => (r[s] = o, r),
+  __derive(nameOrOpts, layer, opts) {
+    const newLayers = Array.from(this.layers.entries()).reduce(
+      (acc, [name, layer2]) => {
+        acc[name] = layer2;
+        return acc;
+      },
       {}
     );
-    if (typeof e == "object" && t === void 0) {
-      const r = Object.assign({}, this.options, e);
-      return d.fromLayers(
-        Object.entries(i).map(([s, o]) => ({ name: s, config: o })),
-        r
+    if (typeof nameOrOpts === "object" && layer === void 0) {
+      const newOpts = Object.assign({}, this.options, nameOrOpts);
+      return LayeredConfig.fromLayers(
+        Object.entries(newLayers).map(([name, config]) => ({ name, config })),
+        newOpts
       );
     }
-    return typeof e == "string" && t !== void 0 ? (i[e] = t, d.fromLayers(
-      Object.entries(i).map(([r, s]) => ({ name: r, config: s })),
-      Object.assign({}, this.options, n ?? {})
-    )) : d.fromLayers(
-      Object.entries(i).map(([r, s]) => ({ name: r, config: s })),
-      Object.assign({}, this.options, n ?? {})
+    if (typeof nameOrOpts === "string" && layer !== void 0) {
+      newLayers[nameOrOpts] = layer;
+      return LayeredConfig.fromLayers(
+        Object.entries(newLayers).map(([name, config]) => ({ name, config })),
+        Object.assign({}, this.options, opts ?? {})
+      );
+    }
+    return LayeredConfig.fromLayers(
+      Object.entries(newLayers).map(([name, config]) => ({ name, config })),
+      Object.assign({}, this.options, opts ?? {})
     );
   }
-  __getAll(e) {
-    const t = c(e) ? f(e) : [e], n = Array.from(this.layers.entries()).reverse(), i = [];
-    for (const [r, s] of n) {
-      if (!s) continue;
-      let o = s, l = !0;
-      for (const u of t)
-        if (o && u in o)
-          o = o[u];
-        else {
-          l = !1;
+  __getAll(key) {
+    const treeKeyParts = isString(key) ? splitDotExceptDouble(key) : [key];
+    const layers = Array.from(this.layers.entries()).reverse();
+    const results = [];
+    for (const [layerName, layer] of layers) {
+      if (!layer) continue;
+      let currentLayer = layer;
+      let found = true;
+      for (const part of treeKeyParts) {
+        if (currentLayer && part in currentLayer) {
+          currentLayer = currentLayer[part];
+        } else {
+          found = false;
           break;
         }
-      l && i.push({ layer: r, value: o });
+      }
+      if (found) {
+        results.push({ layer: layerName, value: currentLayer });
+      }
     }
-    return i;
+    return results;
   }
-  __getComplex(e, t) {
-    const n = c(e) ? f(e) : [e], i = Array.from(this.layers.values()).reverse();
-    let r = {}, s;
-    for (const o of i) {
-      if (!o) continue;
-      let l = o, u = !0;
-      for (const p of n)
-        if (l && p in l)
-          l = l[p];
-        else {
-          u = !1;
+  __getComplex(key, fallback) {
+    const treeKeyParts = isString(key) ? splitDotExceptDouble(key) : [key];
+    const layers = Array.from(this.layers.values()).reverse();
+    let resultingObject = {};
+    let current = void 0;
+    for (const layer of layers) {
+      if (!layer) continue;
+      let currentLayer = layer;
+      let found = true;
+      for (const part of treeKeyParts) {
+        if (currentLayer && part in currentLayer) {
+          currentLayer = currentLayer[part];
+        } else {
+          found = false;
           break;
         }
-      if (u && typeof l != "object") {
-        s = l;
+      }
+      if (found && typeof currentLayer != "object") {
+        current = currentLayer;
         break;
-      } else
-        u && typeof l == "object" && (s = void 0, r = {
-          ...r,
-          ...l
-        });
+      } else {
+        if (found && typeof currentLayer === "object") {
+          current = void 0;
+          resultingObject = {
+            ...resultingObject,
+            ...currentLayer
+          };
+        }
+      }
     }
-    return s !== void 0 ? s : Object.keys(r).length > 0 ? r : t || this.options.notFoundHandler(e);
+    if (current !== void 0) {
+      return current;
+    }
+    if (Object.keys(resultingObject).length > 0) {
+      return resultingObject;
+    }
+    if (fallback)
+      return fallback;
+    return this.options.notFoundHandler(key);
   }
-  __getFlat(e, t) {
-    const n = this.flattened[e];
-    return n !== void 0 ? n : t || this.options.notFoundHandler(e);
+  __getFlat(key, fallback) {
+    const value = this.flattened[key];
+    if (value !== void 0)
+      return value;
+    if (fallback)
+      return fallback;
+    return this.options.notFoundHandler(key);
   }
   /**
    * Inspects a configuration key, providing details about its value and source across layers.
@@ -177,66 +253,84 @@ class d {
    * @param key - The configuration key to inspect.
    * @returns An object containing inspection results, including the resolved value and layer details.
    */
-  __inspect(e) {
-    const t = {
-      key: e,
+  __inspect(key) {
+    const result = {
+      key,
       resolved: {
         value: void 0,
         source: ""
       },
       layers: []
-    }, n = c(e) ? f(e) : [e], i = Array.from(this.layers.keys()).reverse();
-    if (n.length < 1)
+    };
+    const keyParts = isString(key) ? splitDotExceptDouble(key) : [key];
+    const precedence = Array.from(this.layers.keys()).reverse();
+    if (keyParts.length < 1) {
       return {
-        key: e,
+        key,
         resolved: {
           value: void 0,
           source: ""
         },
-        layers: i.map((r) => ({
-          layer: r,
+        layers: precedence.map((layer) => ({
+          layer,
           value: void 0,
-          isPresent: !1,
-          isActive: !1
+          isPresent: false,
+          isActive: false
         }))
       };
-    if (n.length == 1) {
-      let r = !1;
-      for (const s of i) {
-        const o = this.layers.get(s), l = !!(o && e in o), u = l ? o?.[e] : void 0, p = l ? !r : !1;
-        t.layers.push({
-          layer: s,
-          value: l ? u : void 0,
-          isPresent: l,
-          isActive: p
-        }), p && !r && (t.resolved.value = u, t.resolved.source = s, r = !0);
+    }
+    if (keyParts.length == 1) {
+      let found = false;
+      for (const layerName of precedence) {
+        const layer = this.layers.get(layerName);
+        const isPresent = !!(layer && key in layer);
+        const value = isPresent ? layer?.[key] : void 0;
+        const isActive = isPresent ? !found : false;
+        result.layers.push({
+          layer: layerName,
+          value: isPresent ? value : void 0,
+          isPresent,
+          isActive
+        });
+        if (isActive && !found) {
+          result.resolved.value = value;
+          result.resolved.source = layerName;
+          found = true;
+        }
       }
     }
-    if (n.length > 1)
-      for (const r of i) {
-        let s = this.layers.get(r);
-        if (!s)
+    if (keyParts.length > 1) {
+      for (const layer of precedence) {
+        let current = this.layers.get(layer);
+        if (!current)
           continue;
-        let o = !0;
-        for (const u of n)
-          if (s && typeof s == "object" && u in s)
-            s = s[u];
-          else {
-            o = !1;
+        let found = true;
+        for (const part of keyParts) {
+          if (current && typeof current === "object" && part in current) {
+            current = current[part];
+          } else {
+            found = false;
             break;
           }
-        o || (s = void 0);
-        const l = o && s !== void 0;
-        t.layers.push({
-          layer: r,
-          value: l ? s : void 0,
-          isPresent: o,
-          isActive: l && t.resolved.value === void 0
-        }), l && t.resolved.value === void 0 && (t.resolved.value = s, t.resolved.source = r);
+        }
+        if (!found)
+          current = void 0;
+        const isActive = found && current !== void 0;
+        result.layers.push({
+          layer,
+          value: isActive ? current : void 0,
+          isPresent: found,
+          isActive: isActive && result.resolved.value === void 0
+        });
+        if (isActive && result.resolved.value === void 0) {
+          result.resolved.value = current;
+          result.resolved.source = layer;
+        }
       }
-    return t;
+    }
+    return result;
   }
 }
 export {
-  d as LayeredConfig
+  LayeredConfig
 };
