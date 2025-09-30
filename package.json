@@ -1,7 +1,7 @@
 {
   "name": "config-layers",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "main": "dist/config-layers.js",
   "exports": {
@@ -12,7 +12,9 @@
     "./package.json": "./package.json"
   },
   "license": "MIT",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "author": {
     "name": "Teodor Kulej",
     "email": "mt3o@users.noreply.github.com",
@@ -29,7 +31,11 @@
     "typecheck": "tsc --noEmit",
     "clean": "rimraf coverage build out tmp"
   },
-  "keywords": ["configuration","confi","layers"],
+  "keywords": [
+    "configuration",
+    "confi",
+    "layers"
+  ],
   "bugs": {
     "url": "https://github.com/mt3o/config-layers/issues"
   },
