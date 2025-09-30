@@ -34,6 +34,7 @@ Defaults can have the lowest priority, while environment-specific values (like f
 All the merging is handled for you in a type-safe way. You define the config structure using a TypeScript type or interface. You can also use validation libraries like Zod or JSON Schema if you want, but it’s not required. If you use any instead of a type, you lose type safety, which is one of the main benefits of using TypeScript. For runtime validation, see the [Zod validation](examples/zod-validate) example.
 
 # Features
+
 - Easy to integrate into any project
 - Layered configuration merging
 - Deep key access (dot notation)
@@ -42,68 +43,16 @@ All the merging is handled for you in a type-safe way. You define the config str
 - Immutable config proxy, frozen config object
 - TypeScript support
 
+## Why?
 
-# Why?
+_Note: full article in [docs/why.md](docs/why.md)_
 
-Config Layers is a TypeScript library for managing complex configuration objects with support for inspection, fallbacks, and immutability. Useful for applications that need to rely on configuration from multiple sources and detail level (e.g., defaults, environment, country, region, page template).
+Config Layers is a TypeScript library for managing complex hierarchical configuration objects with support for inspection, fallbacks, and immutability. Useful for applications that need to rely on configuration from multiple sources and detail level (e.g., defaults, environment, country, region, page template).
 
-The library was born out of real world needs, when working on projects with complex configuration requirements. It was written from scratch, but based on real experiences and conclusions, with fresh approach, not tainted by legacy decisions. It's not a corporate code that was open-sourced, but rather a personal project, aimed to address the actual needs, without having to satisfy budget constraints, sprint goal, lack of time for refactoring and other such nonsense. :-)
-
-Besides, it's far easier to point the new person to a library on github than to explain in-house code, even if it's well documented in the Confluence, don't you think? ;-)
-
-The library is not _opinionated_, that means we don't force you to use any specific file structure, environment variable naming conventions, or configuration formats. You can integrate this library into any project structure and use it alongside your existing configuration management practices. It's up to you to decide how to source and organize your configuration data.
-
-In modern applications, configuration often comes from multiple sources: some default settings, environment-specific overrides, user-specific preferences, etc. Managing these layers manually can lead to complex and error-prone code. 
-
-If your application has like 5 environments, supports over 40 countries, and allows user-specific settings, the number of configuration combinations can grow exponentially. This library helps manage this complexity by providing a structured way to access the config values.
-
-Why not just use object spread or lodash merge? Like this:
-
-```
-export const config = {
-  ...layers[0].config, //least priority
-  ...layers[1].config,
-  ...layers[2].config, //highest priority
-}
-```
-
-While you can can merge objects, you get no inspection capabilities, and the approach falls short for nested objects. Real world use cases involve complex config layouts, with nested objects, arrays, and various data types, as well as masked values, so that api secrets don't get dumped into the logs. This library handles these complexities while providing a clean typesafe API.
-
-Full-grown solutions like https://www.npmjs.com/package/config (its pretty exhaustive, btw! well thought out!) provide an opinionated way of managing the configuration, often tied to file system layouts and specific environment variable conventions. The Layered Config library is unopinionated and can be integrated into any project structure. It's perfectly reasonable to stick to dotenv or predefined json files for smaller projects, leverage complex yaml files with preprocessing for mid-sized projects, and solutions like AppConfig from AWS for large scale applications. This library can be used in all those scenarios providing a nice and tidy abstraction over different implementations. 
-
-Using json/yaml directly lacks type safety and inspection capabilities. How many times we try configuring something only to find out that the value comes from a different source than we expected?. Object spread makes sense only for smallest setups, but becomes unmanageable quickly.
-
-Let's consider such config schema:
-```ts
-type API={
-    apiEndpoint: string;
-    apikey: ()=>string;
-    authenticationScheme: 'none' | 'basic' | 'oauth';
-}
-type Config = {
-    envName: string; // e.g. "development", "staging", "production"
-    apis:{
-        weather: API;
-        search: API;
-        maps: API;
-    }
-}
-```
-
-This use case can't be handled with simple object-spread approach. It doesn't scale well. You would need to write custom merging logic for nested objects (or use lodash merge), and eventually it becomes difficult to track which value comes from which config layer. That's why the inspection feature was implemented.
-
-On the other hand, using solutions like AWS AppConfig enforces you to jump in with both feet, to 100% adopt their way of doing things, and it's not always feasible. For local development and quick prototyping - AppConfig is troublesome, for small projects - it's overkill. Feature flag solutions like LaunchDarkly are great for toggling features with a UI, but not for managing complex configuration objects with database credentials, api keys and service secrets.
-
-## Key benefits
-
-- **Separation of Concerns**: Different configuration layers (e.g., defaults, environment-specific, user-specific) can be managed independently.
-- **Flexibility**: Easily override configuration values based on context (e.g., development vs production).
-- **Transparency**: Inspect which layer provided a specific configuration value, aiding in debugging and transparency.
-- **Type Safety**: TypeScript support ensures that configuration values adhere to expected types, reducing runtime errors and allowing you to rely on intellisense when writing code.
 
 # Usage
 
-NOTE: Examples use dynamic imports due to [Vitest doctest](https://github.com/ssssota/doc-vitest) limitations.
+_NOTE: Examples use dynamic imports due to [Vitest doctest](https://github.com/ssssota/doc-vitest) limitations._
 
 Feel free to import traditionally or dynamically as shown in the examples.
 
@@ -138,6 +87,78 @@ expect(cfg.userContext.userId).toBe('user123'); // compound values are also acce
 
 Please note that we don't validate your config objects against the schema at runtime. The library relies on TypeScript's static type checking to ensure that the configuration objects conform to the specified schema. This means that its possible to inject invalid config objects at runtime - bypassing TypeScript checks. Always ensure that your configuration objects match the expected types to avoid runtime errors. In yout code it must be relatively easy to employ i.e. [Zod](https://zod.dev/) to validate the config object, either as whole or layer by layer, and it is with Layered Config. Consult the [examples](./examples) folder for more usage patterns.
 
+### API
+- `LayeredConfig.fromLayers(layers, options?)`: Create a layered config proxy.
+- `cfg.${key}`: Get a value by key.
+- `cfg[key]`: Get a value by key.
+- `cfg.__inspect(key)`: Inspect the source and value for a key.
+- `cfg(key, fallback?)`: Get a value with fallback.
+- `cfg.getAll(key)`: Get all values for a key from all layers, returns as `Array<{layer: string, value: any}>`.
+- `cfg.__derive(...)`: Derive a new config with additional/overridden layers or options.
+                                      
+### Special names
+
+The config proxy provides a few sepcial methods to assist you. 
+
+- `__inspect` - to inspect which layer provided the value for a given key
+- `__derive` - to derive a new config with additional/overridden layers or options
+- `get` - callback notation to get a value, with optional fallback
+- `getAll` - callback notation to get all values for a key, from all layers, and return them as an `Array<{layer: string, value: any}>` so that you can easily unpack them
+
+These words are reserved, so you can't create config keys with these names. 
+
+### Accessing config values
+
+You can access config values directly as properties, with index access, or use the callback notation to provide a fallback value.
+
+```typescript 
+cfg.apikey; // direct property access
+cfg['apikey']; // index access
+cfg('apikey'); // callback notation
+cfg('apikey', 'default-apikey'); // with fallback
+
+cfg.nested.field; // direct property access
+cfg['nested.field']; // index access
+cfg('nested.field'); // callback notation
+cfg('nested.field', 'default-value'); // with fallback
+```
+In case your config defines values that are arrays, the simple access - returns only the highest priority value. If you need to get all values from all layers, use the `getAll` special method.
+
+```typescript
+cfg.getAll('arrayKey'); // returns Array<{layer: string, value: any}>
+cfg.getAll('enabled.features').map(item=>item.value); // get only the values, as array of arrays
+```
+
+To flatten the array of arrays, use flatMap
+
+```typescript :@import.meta.vitest
+const {LayeredConfig} = await import('./dist/config-layers.js');
+const layers = [
+  { name: "1", config: { "features": ["f1", "f2","f4"] } },
+  { name: "2", config: {"features": ["f3"] } } ,
+  { name: "3", config: {"features": ["f3","f4", "f5"] } },
+];
+const cfg = LayeredConfig.fromLayers<{features: string[]}>(layers);
+expect(cfg.features).toEqual(['f3', 'f4', 'f5']); // highest priority only
+//get all values from all layers
+expect(cfg.getAll('features').map(item=>item.value)).toEqual([
+  ['f3','f4','f5'],
+  ['f3'],
+  ['f1','f2','f4'],
+]);
+//flatten the array of arrays with flatMap()
+expect(cfg.getAll('features').flatMap(item=>item.value)).toEqual([
+  'f3','f4','f5',
+  'f3',
+  'f1','f2','f4',
+]);
+//Get unique values only, with help of the Set() and flatmap()
+expect(Array.from(new Set(
+    cfg.getAll('features').flatMap(item=>item.value)
+))).toStrictEqual(['f3','f4','f5','f1','f2']);
+```
+
+
 ### Config options
 
 #### Not Found Handler
@@ -150,15 +171,33 @@ const {LayeredConfig} = await import('./dist/config-layers.js');
 const cfg = LayeredConfig.fromLayers<{apikey: string}>(
   [{ name: "default", config: {} }], //the config is empty in this example
   {
-    notFoundHandler: key => {
-      return 'XD';
+    notFoundHandler: key => { //when key is not found, this handler is called
+      return 'XD';  //return a default value for any missing key
     }
   }
 );
 expect(cfg.anything).toBe('XD'); // the handler is called for any missing key
 ```
 
-#### Fallbacks
+#### Freeze
+
+By default the config object is frozen, so that you can't mutate it. This is to ensure immutability and prevent accidental changes to the configuration at runtime. To replace or add the config layers, you should use the `__derive` method, which creates a new config object based on the existing one, with the specified changes.
+
+If you need to modify the config object (not recommended), you can disable freezing by setting the `freeze` option to `false`.
+
+```typescript
+import {LayeredConfig} from 'config-layers';
+const cfg = LayeredConfig.fromLayers<{apikey: string}>(
+  [{/*...*/}], //provide your config layers here
+  {
+    freeze: false //mark the config object as mutable
+  }
+);
+```
+
+
+### Fallbacks
+
 The library is suitable for localization or similar use cases. It provides graceful handling of missing keys via fallbacks or a custom not-found handler.
 
 ```typescript :@import.meta.vitest
@@ -185,18 +224,7 @@ expect(labels('button2', 'cookie msg2')).toBe('cookie msg2');
 expect(labels.button2).toBe('<<button2>>'); 
 ```
 
-### Special names
-
-The config proxy provides a few sepcial methods to assist you. 
-
-- `__inspect` - to inspect which layer provided the value for a given key
-- `__derive` - to derive a new config with additional/overridden layers or options
-- `get` - callback notation to get a value, with optional fallback
-- `getAll` - callback notation to get all values for a key, from all layers, and return them as an `Array<{layer: string, value: any}>` so that you can easily unpack them
-
-These words are resered, so you can't create config keys with these names. 
-
-### Inspecting Configuration
+### Inspecting Configuration with `__inspect`
 
 The inspection special word is prefixed with double underscore to avoid name collisions with your config keys. If you need to use keys starting with double underscore, consider using the callback notation. If your config keys must rely on dots within flat array, use the callback notation as well and double the dots in your code.
 
@@ -272,7 +300,8 @@ expect(custom.timeout).toBe(1000);
 expect(custom.nonexistent).toBe('N/A');
 ```
 
-#### API
+#### API for `__derive`
+
 - `cfg.__derive(options)`: Returns a new config with new options (e.g., a custom notFoundHandler).
 - `cfg.__derive(layerName, layerConfig)`: Returns a new config with the given layer added or replaced.
 - `cfg.__derive(layerName, layerConfig, options)`: Returns a new config with both a new/overridden layer and new options.
@@ -280,63 +309,7 @@ expect(custom.nonexistent).toBe('N/A');
 The original config is never mutated. All derived configs are independent proxies.
 
 Consult the [unit tests](./tests/basic.test.ts) and [examples](./examples) folder for more usage patterns.
-      
-### Accessing config values
 
-You can access config values directly as properties, with index access, or use the callback notation to provide a fallback value.
-
-```typescript 
-cfg.apikey; // direct property access
-cfg['apikey']; // index access
-cfg('apikey'); // callback notation
-cfg('apikey', 'default-apikey'); // with fallback
-
-cfg.nested.field; // direct property access
-cfg['nested.field']; // index access
-cfg('nested.field'); // callback notation
-cfg('nested.field', 'default-value'); // with fallback
-```
-In case your config defines values that are arrays, the simple access - returns only the highest priority value. If you need to get all values from all layers, use the `getAll` special method.
-
-```typescript
-cfg.getAll('arrayKey'); // returns Array<{layer: string, value: any}>
-cfg.getAll('enabled.features').map(item=>item.value); // get only the values, as array of arrays
-```
-
-To flatten the array of arrays, use flatMap
-
-```typescript :@import.meta.vitest
-const {LayeredConfig} = await import('./dist/config-layers.js');
-const layers = [
-  { name: "1", config: { "features": ["f1", "f2","f4"] } },
-  { name: "2", config: {"features": ["f3"] } } ,
-  { name: "3", config: {"features": ["f3","f4", "f5"] } },
-];
-const cfg = LayeredConfig.fromLayers<{features: string[]}>(layers);
-expect(cfg.features).toEqual(['f3', 'f4', 'f5']); // highest priority only
-//get all values from all layers
-expect(cfg.getAll('features').map(item=>item.value)).toEqual([
-  ['f3','f4','f5'],
-  ['f3'],
-  ['f1','f2','f4'],
-]);
-//flatten the array of arrays with flatMap()
-expect(cfg.getAll('features').flatMap(item=>item.value)).toEqual([
-  'f3','f4','f5',
-  'f3',
-  'f1','f2','f4',
-]);
-//Get unique values only, with help of the Set() and flatmap()
-expect(Array.from(new Set(
-    cfg.getAll('features').flatMap(item=>item.value)
-))).toStrictEqual(['f3','f4','f5','f1','f2']);
-```
-
-## API
-- `LayeredConfig.fromLayers(layers, options?)`: Create a layered config proxy.
-- `cfg.${key}`: Get a value by key.
-- `cfg.__inspect(key)`: Inspect the source and value for a key.
-- `cfg(key, fallback?)`: Get a value with fallback.
 
 ## Testing
 
@@ -346,11 +319,38 @@ Run tests with:
 ```bash
 npm test
 ```
+To run tests also for the code examples, install the dependencies in the `examples` folder:
+```bash
+cd examples
+npm install
+cd ..
+npm test
+```
+             
+## Further reading
+
+- [**Why?**](docs/why.md) - the motivation and reasoning behind the library is explained in the [docs/why.md](docs/why.md) file.
+- [**Tips and tricks**](docs/tips-and-tricks.md) for implementing configuration management are available in the [docs/tips-and-tricks.md](docs/tips-and-tricks.md) file.
+
+- Other libraries focused on config management:
+  - [convict](https://www.npmjs.com/package/convict) - schema-based config management with validation and environment variable support.
+  - [config](https://www.npmjs.com/package/config) - feature-rich opinionated config library with file-based layers and environment support.
+  - [nconf](https://www.npmjs.com/package/nconf) - hierarchical config with multiple sources and priority levels. Batteries included, 
+  - [dotenv-flow](https://www.npmjs.com/package/dotenv-flow) - extended version of dotenv supporting multiple .env files for different environments.
+  - [dotenv](https://www.npmjs.com/package/dotenv) - loads env vars from .env files, often used alongside other config libraries.
+  - [Zod](https://zod.dev/) - schema validation library that can be used to validate config objects at runtime.
+  - [ajv](https://ajv.js.org/) - another JSON Schema validator for runtime config validation, can be used together with JSON Schema.
 
 ## Contributing
 
-Contributions are welcome! Please open issues or pull requests for improvements or bug fixes.
+Contributions are welcome! Please open [issues](https://github.com/mt3o/config-layers/issues) or pull requests for improvements or bug fixes.
+
+## Special thanks
+
+For all the initial insights, testing and proofreading - thank to [Karol Witkowski](https://github.com/Karol-Witkowski)!
+
+For helping me in writing the docs and code examples - thanks to [Junie](https://www.jetbrains.com/junie/) by JetBrains!
 
 ## License
 
-Unlicense
+[Unlicense](LICENSE). Take it and use it for any purpose, without any restrictions.
