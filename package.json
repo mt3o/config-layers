@@ -34,16 +34,22 @@
     "clean": "rimraf coverage build out tmp"
   },
   "keywords": [
+    "config",
+    "hierarchical config",
+    "cascading config",
+    "config layers",
     "configuration",
-    "confi",
-    "layers"
+    "config management",
+    "config library",
+    "layers",
+    "hierarchy"
   ],
   "bugs": {
     "url": "https://github.com/mt3o/config-layers/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/wmt3o/config-layers.git"
+    "url": "git+https://github.com/mt3o/config-layers.git"
   },
   "homepage": "https://github.com/mt3o/config-layers#readme",
   "dependencies": {},

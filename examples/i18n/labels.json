@@ -1,0 +1,57 @@
+{
+  "$schema": "./i18n.schema.json",
+  "en": {
+    "us": {
+      "__name": "English (US)",
+      "ok": "Ok!",
+      "welcome.message": "Welcome!",
+      "search.query.placeholder": "Type your search..."
+    },
+    "gb": {
+      "__name": "English (UK)",
+      "__inherits": "en us",
+      "search.query.placeholder": "Type your search phrase..."
+    }
+  },
+  "fr": {
+    "fr": {
+      "__name": "Français (France)",
+      "__inherits": "en us",
+      "welcome.message": "Bienvenue!",
+      "search.query.placeholder": "Tapez votre recherche..."
+    },
+    "ca": {
+      "__name": "Français (Canada)",
+      "__inherits": "fr fr",
+      "welcome.message": "Salut!",
+      "search.query.placeholder": "Entrez votre recherche ici..."
+    }
+  },
+  "de": {
+    "de": {
+      "__name": "Deutsch (Deutschland)",
+      "__inherits": "en us",
+      "welcome.message": "Willkommen!",
+      "search.query.placeholder": "Geben Sie Ihre Suche ein..."
+    },
+    "at": {
+      "__name": "Deutsch (Österreich)",
+      "__inherits": "de de",
+      "welcome.message": "Servus!",
+      "search.query.placeholder": "Gib deine Suche hier ein..."
+    }
+  },
+  "es": {
+    "es": {
+      "__name": "Español (España)",
+      "__inherits": "en us",
+      "welcome.message": "¡Bienvenido!",
+      "search.query.placeholder": "Escribe tu búsqueda..."
+    },
+    "mx": {
+      "__name": "Español (México)",
+      "__inherits": "es es",
+      "welcome.message": "¡Hola!"
+    }
+  }
+}

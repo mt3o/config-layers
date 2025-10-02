@@ -3,7 +3,7 @@ function isString(key) {
 }
 function splitDotExceptDouble(str) {
   return str.split(new RegExp("(?<!\\.)\\.(?!\\.)")).map((part) => {
-    return part.replace(/([^,])\.([.]+[^,])/gu, "$1$2");
+    return part.replace(/\.{2,}/gu, (match) => match.slice(1));
   });
 }
 if (import.meta.vitest) {
@@ -18,6 +18,29 @@ if (import.meta.vitest) {
     });
     it("should handle triple dots as two splits", () => {
       expect(splitDotExceptDouble("a...b.c")).toEqual(["a..b", "c"]);
+    });
+    it("should return the whole string if no dots", () => {
+      expect(splitDotExceptDouble("abc")).toEqual(["abc"]);
+    });
+    it("should handle leading dot", () => {
+      expect(splitDotExceptDouble(".a.b")).toEqual(["", "a", "b"]);
+    });
+    it("should handle trailing dot", () => {
+      expect(splitDotExceptDouble("a.b.")).toEqual(["a", "b", ""]);
+    });
+    it("should handle only dots", () => {
+      expect(splitDotExceptDouble("..")).toEqual(["."]);
+      expect(splitDotExceptDouble("...")).toEqual([".."]);
+      expect(splitDotExceptDouble("....")).toEqual(["..."]);
+    });
+    it("should handle empty string", () => {
+      expect(splitDotExceptDouble("")).toEqual([""]);
+    });
+    it("should handle consecutive double dots", () => {
+      expect(splitDotExceptDouble("a..b..c")).toEqual(["a.b.c"]);
+    });
+    it("should handle mixed single and double dots", () => {
+      expect(splitDotExceptDouble("a.b..c.d")).toEqual(["a", "b.c", "d"]);
     });
   });
 }

@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LocalizationMap",
+  "type": "object",
+  "properties": {
+    "$schema": { "type": "string" }
+  },
+  "additionalProperties": {
+    "type": "object",
+    "additionalProperties": {
+      "type": "object",
+      "properties": {
+        "__name": {"type": "string"},
+        "__inherits": {"type": "string"},
+        "welcome.message": {"type": "string"},
+        "search.query.placeholder": {"type": "string"}
+      },
+      "required": [
+        "__name"
+      ]
+    }
+  }
+}
