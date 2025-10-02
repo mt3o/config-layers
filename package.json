@@ -1,7 +1,7 @@
 {
   "name": "config-layers",
   "private": false,
-  "version": "0.0.3",
+  "version": "0.0.4",
   "type": "module",
   "main": "dist/config-layers.js",
   "types": "./dist/types.d.ts",
