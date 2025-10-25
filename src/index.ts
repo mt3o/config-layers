@@ -2,8 +2,11 @@ import type {
     LayerName,
     ConfigInspectionResult,
     ConfigOptions,
-    ConfigHandle,
+    ConfigHandle, DeepOptionalAndUndefined,
 } from "./types";
+
+
+
 
 function isString(key: string | symbol | number) {
     return typeof key === 'string';
@@ -136,18 +139,18 @@ function deepFreeze<T>(obj: T): T {
  */
 export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<string, any>> {
 
-    private layers: Map<LayerName, Partial<Schema>>;
+    private layers: Map<LayerName, DeepOptionalAndUndefined<Schema>>;
 
-    private flattened: Partial<Schema>;
+    private flattened: DeepOptionalAndUndefined<Schema>;
 
     private constructor(
-        layers: Map<LayerName, Partial<Schema>>,
+        layers: Map<LayerName, DeepOptionalAndUndefined<Schema>>,
         options: Partial<ConfigOptions> | undefined = undefined,
     ) {
         this.layers = layers;
         this.flattened = Array.from(this.layers.values()).reduce((acc, layer) => {
             return deepMerge(acc, layer);
-        }, {} as Partial<Schema>);
+        }, {} as DeepOptionalAndUndefined<Schema>);
 
         this.options = {
             ...{
@@ -178,7 +181,7 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
      *
      */
     public static fromLayers<Schema extends Record<string | symbol, any> = Record<string, any>>(
-        layers: Array<{ name: LayerName, config: Partial<Schema> }>,
+        layers: Array<{ name: LayerName, config: DeepOptionalAndUndefined<Schema> }>,
         options?: Partial<ConfigOptions>
     ) {
 
@@ -272,7 +275,7 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
 
     private __derive(
         nameOrOpts: string | Partial<ConfigOptions>,
-        layer?: Partial<Schema>,
+        layer?: DeepOptionalAndUndefined<Schema>,
         opts?: Partial<ConfigOptions>
     ): ConfigHandle<Schema> {
 
@@ -281,7 +284,7 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
                 (acc, [name, layer]) => {
                     acc[name] = layer;
                     return acc;
-                }, {} as Record<LayerName, Partial<Schema>>);
+                }, {} as Record<LayerName, DeepOptionalAndUndefined<Schema>>);
 
         if (typeof nameOrOpts === 'object' && layer === undefined) {
             // called with opts only
@@ -465,7 +468,7 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
 
         if (keyParts.length > 1) {
             for (const layer of precedence) {
-                let current: Partial<Schema> | undefined = this.layers.get(layer);
+                let current: DeepOptionalAndUndefined<Schema> | undefined = this.layers.get(layer);
                 if (!current)
                     continue;
 

@@ -3,18 +3,32 @@
  */
 export type LayerName = string | symbol;
 
+type NonArrayObject = { [key: string]: any };
+/**
+ * Recursively makes all properties optional and allows 'undefined' for the value.
+ * This infers which properties are nested objects (excluding arrays) and applies
+ * the deep logic only to them.
+ */
+export type DeepOptionalAndUndefined<T> = {
+  [P in keyof T]?: T[P] extends (infer _U)[] // Check if T[P] is an array
+    ? T[P] // Keep arrays as they are (or you could recursively handle array elements if needed)
+    : T[P] extends NonArrayObject // Check if T[P] is a non-array object
+      ? DeepOptionalAndUndefined<T[P]> | undefined // Apply recursion and allow undefined
+      : T[P] | undefined; // Base case: not an object, just allow T[P] or undefined
+};
+
 /**
  * The result of inspecting a configuration key, including its resolved value, source layer, and per-layer details.
  */
 export interface ConfigInspectionResult<Schema, T> {
     key: string | symbol | keyof Schema;
     resolved: {
-        value: T | undefined | Partial<Schema>;
+        value: T | undefined | DeepOptionalAndUndefined<Schema>;
         source: LayerName;
     };
     layers: Array<{
         layer: LayerName;
-        value: T | undefined | Partial<Schema>;
+        value: T | undefined | DeepOptionalAndUndefined<Schema>;
         isPresent: boolean;
         isActive: boolean;
     }>;

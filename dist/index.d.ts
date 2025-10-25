@@ -1,4 +1,4 @@
-import type { LayerName, ConfigInspectionResult, ConfigOptions, ConfigHandle } from "./types";
+import type { LayerName, ConfigInspectionResult, ConfigOptions, ConfigHandle, DeepOptionalAndUndefined } from "./types";
 /**
  * LayeredConfig provides a proxy-based API for merging and inspecting configuration from multiple layers.
  *
@@ -61,7 +61,7 @@ export declare class LayeredConfig<Schema extends Record<string | symbol, any> =
      */
     static fromLayers<Schema extends Record<string | symbol, any> = Record<string, any>>(layers: Array<{
         name: LayerName;
-        config: Partial<Schema>;
+        config: DeepOptionalAndUndefined<Schema>;
     }>, options?: Partial<ConfigOptions>): ConfigHandle<Schema>;
     private __withFallback;
     private __derive;

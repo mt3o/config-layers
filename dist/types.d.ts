@@ -2,18 +2,29 @@
  * Represents the name of a configuration layer.
  */
 export type LayerName = string | symbol;
+type NonArrayObject = {
+    [key: string]: any;
+};
+/**
+ * Recursively makes all properties optional and allows 'undefined' for the value.
+ * This infers which properties are nested objects (excluding arrays) and applies
+ * the deep logic only to them.
+ */
+export type DeepOptionalAndUndefined<T> = {
+    [P in keyof T]?: T[P] extends (infer _U)[] ? T[P] : T[P] extends NonArrayObject ? DeepOptionalAndUndefined<T[P]> | undefined : T[P] | undefined;
+};
 /**
  * The result of inspecting a configuration key, including its resolved value, source layer, and per-layer details.
  */
 export interface ConfigInspectionResult<Schema, T> {
     key: string | symbol | keyof Schema;
     resolved: {
-        value: T | undefined | Partial<Schema>;
+        value: T | undefined | DeepOptionalAndUndefined<Schema>;
         source: LayerName;
     };
     layers: Array<{
         layer: LayerName;
-        value: T | undefined | Partial<Schema>;
+        value: T | undefined | DeepOptionalAndUndefined<Schema>;
         isPresent: boolean;
         isActive: boolean;
     }>;
@@ -60,4 +71,5 @@ export type WithDerive<Schema extends Record<string | symbol, any> = Record<stri
  */
 export type NotFoundHandler = (key: string | symbol | number) => any;
 export type ConfigHandle<Schema extends Record<string | symbol, any> = Record<string, any>> = Schema & WithInspect<Schema> & WithHandler<Schema> & WithDerive<Schema> & WithGetAll<Schema>;
+export {};
 //# sourceMappingURL=types.d.ts.map
