@@ -8,44 +8,6 @@ function splitDotExceptDouble(str) {
     return part.replace(/\.{2,}/gu, (match) => match.slice(1));
   });
 }
-if (void 0) {
-  const { describe, it, expect } = void 0;
-  describe("splitDotExceptDouble", () => {
-    it("should split on single dots", () => {
-      expect(splitDotExceptDouble("a.b.c")).toEqual(["a", "b", "c"]);
-    });
-    it("should not split on double dots", () => {
-      expect(splitDotExceptDouble("special..name")).toEqual(["special.name"]);
-      expect(splitDotExceptDouble("a..b.c")).toEqual(["a.b", "c"]);
-    });
-    it("should handle triple dots as two splits", () => {
-      expect(splitDotExceptDouble("a...b.c")).toEqual(["a..b", "c"]);
-    });
-    it("should return the whole string if no dots", () => {
-      expect(splitDotExceptDouble("abc")).toEqual(["abc"]);
-    });
-    it("should handle leading dot", () => {
-      expect(splitDotExceptDouble(".a.b")).toEqual(["", "a", "b"]);
-    });
-    it("should handle trailing dot", () => {
-      expect(splitDotExceptDouble("a.b.")).toEqual(["a", "b", ""]);
-    });
-    it("should handle only dots", () => {
-      expect(splitDotExceptDouble("..")).toEqual(["."]);
-      expect(splitDotExceptDouble("...")).toEqual([".."]);
-      expect(splitDotExceptDouble("....")).toEqual(["..."]);
-    });
-    it("should handle empty string", () => {
-      expect(splitDotExceptDouble("")).toEqual([""]);
-    });
-    it("should handle consecutive double dots", () => {
-      expect(splitDotExceptDouble("a..b..c")).toEqual(["a.b.c"]);
-    });
-    it("should handle mixed single and double dots", () => {
-      expect(splitDotExceptDouble("a.b..c.d")).toEqual(["a", "b.c", "d"]);
-    });
-  });
-}
 function deepMerge(target, source) {
   for (const key in source) {
     if (Object.prototype.hasOwnProperty.call(source, key) && typeof source[key] === "object" && source[key] !== null && !Array.isArray(source[key])) {
@@ -157,6 +119,9 @@ class LayeredConfig {
         }
         if (key === "getAll") {
           return instance.__getAll.bind(instance);
+        }
+        if (key === "then" && instance.flattened["then"] === void 0) {
+          return void 0;
         }
         const treeKeyParts = isString(key) ? splitDotExceptDouble(key) : [key];
         if (treeKeyParts.length == 1) {
@@ -355,5 +320,49 @@ class LayeredConfig {
     }
     return result;
   }
+}
+if (void 0) {
+  const { describe, it, expect } = void 0;
+  describe("splitDotExceptDouble", () => {
+    it("should split on single dots", () => {
+      expect(splitDotExceptDouble("a.b.c")).toEqual(["a", "b", "c"]);
+    });
+    it("should not split on double dots", () => {
+      expect(splitDotExceptDouble("special..name")).toEqual(["special.name"]);
+      expect(splitDotExceptDouble("a..b.c")).toEqual(["a.b", "c"]);
+    });
+    it("should handle triple dots as two splits", () => {
+      expect(splitDotExceptDouble("a...b.c")).toEqual(["a..b", "c"]);
+    });
+    it("should return the whole string if no dots", () => {
+      expect(splitDotExceptDouble("abc")).toEqual(["abc"]);
+    });
+    it("should handle leading dot", () => {
+      expect(splitDotExceptDouble(".a.b")).toEqual(["", "a", "b"]);
+    });
+    it("should handle trailing dot", () => {
+      expect(splitDotExceptDouble("a.b.")).toEqual(["a", "b", ""]);
+    });
+    it("should handle only dots", () => {
+      expect(splitDotExceptDouble("..")).toEqual(["."]);
+      expect(splitDotExceptDouble("...")).toEqual([".."]);
+      expect(splitDotExceptDouble("....")).toEqual(["..."]);
+    });
+    it("should handle empty string", () => {
+      expect(splitDotExceptDouble("")).toEqual([""]);
+    });
+    it("should handle consecutive double dots", () => {
+      expect(splitDotExceptDouble("a..b..c")).toEqual(["a.b.c"]);
+    });
+    it("should handle mixed single and double dots", () => {
+      expect(splitDotExceptDouble("a.b..c.d")).toEqual(["a", "b.c", "d"]);
+    });
+  });
+  describe("LayeredConfig", () => {
+    it('should return undefined for "then" to support async/await', () => {
+      const config = LayeredConfig.fromLayers([]);
+      expect(config.then).toBeUndefined();
+    });
+  });
 }
 exports.LayeredConfig = LayeredConfig;

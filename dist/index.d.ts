@@ -1,4 +1,5 @@
 import type { LayerName, ConfigInspectionResult, ConfigOptions, ConfigHandle, DeepOptionalAndUndefined } from "./types";
+export type { LayerName, ConfigInspectionResult, ConfigOptions, ConfigHandle, DeepOptionalAndUndefined };
 /**
  * LayeredConfig provides a proxy-based API for merging and inspecting configuration from multiple layers.
  *

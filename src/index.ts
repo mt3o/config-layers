@@ -5,7 +5,7 @@ import type {
     ConfigHandle, DeepOptionalAndUndefined,
 } from "./types";
 
-
+export type {LayerName, ConfigInspectionResult, ConfigOptions, ConfigHandle, DeepOptionalAndUndefined};
 
 
 function isString(key: string | symbol | number) {
@@ -17,48 +17,6 @@ function splitDotExceptDouble(str: string): string[] {
     return str.split(/(?<!\.)\.(?!\.)/).map(part=>{
         //and remove the additional dot from the doubled parts
         return part.replace(/\.{2,}/gu, match=>match.slice(1));
-    });
-}
-
-// in-source test suites
-// @ts-ignore
-if (import.meta.vitest) {
-// @ts-ignore
-    const {describe, it, expect} = import.meta.vitest;
-    describe('splitDotExceptDouble', () => {
-        it('should split on single dots', () => {
-            expect(splitDotExceptDouble('a.b.c')).toEqual(['a', 'b', 'c']);
-        });
-        it('should not split on double dots', () => {
-            expect(splitDotExceptDouble('special..name')).toEqual(['special.name']);
-            expect(splitDotExceptDouble('a..b.c')).toEqual(['a.b', 'c']);
-        });
-        it('should handle triple dots as two splits', () => {
-            expect(splitDotExceptDouble('a...b.c')).toEqual(['a..b', 'c']);
-        });
-        it('should return the whole string if no dots', () => {
-            expect(splitDotExceptDouble('abc')).toEqual(['abc']);
-        });
-        it('should handle leading dot', () => {
-            expect(splitDotExceptDouble('.a.b')).toEqual(['', 'a', 'b']);
-        });
-        it('should handle trailing dot', () => {
-            expect(splitDotExceptDouble('a.b.')).toEqual(['a', 'b', '']);
-        });
-        it('should handle only dots', () => {
-            expect(splitDotExceptDouble('..')).toEqual(['.']);
-            expect(splitDotExceptDouble('...')).toEqual(['..']);
-            expect(splitDotExceptDouble('....')).toEqual(['...']);
-        });
-        it('should handle empty string', () => {
-            expect(splitDotExceptDouble('')).toEqual(['']);
-        });
-        it('should handle consecutive double dots', () => {
-            expect(splitDotExceptDouble('a..b..c')).toEqual(['a.b.c']);
-        });
-        it('should handle mixed single and double dots', () => {
-            expect(splitDotExceptDouble('a.b..c.d')).toEqual(['a', 'b.c', 'd']);
-        });
     });
 }
 
@@ -244,6 +202,10 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
                 }
                 if(key==='getAll'){
                     return instance.__getAll.bind(instance);
+                }
+
+                if (key === 'then' && (instance.flattened as any)['then'] === undefined) {
+                    return undefined;
                 }
 
                 const treeKeyParts = isString(key) ? splitDotExceptDouble(key) : [key];
@@ -498,4 +460,54 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
         }
         return result;
     }
+}
+
+// in-source test suites
+// @ts-ignore
+if (import.meta.vitest) {
+// @ts-ignore
+    const {describe, it, expect} = import.meta.vitest;
+    describe('splitDotExceptDouble', () => {
+        it('should split on single dots', () => {
+            expect(splitDotExceptDouble('a.b.c')).toEqual(['a', 'b', 'c']);
+        });
+        it('should not split on double dots', () => {
+            expect(splitDotExceptDouble('special..name')).toEqual(['special.name']);
+            expect(splitDotExceptDouble('a..b.c')).toEqual(['a.b', 'c']);
+        });
+        it('should handle triple dots as two splits', () => {
+            expect(splitDotExceptDouble('a...b.c')).toEqual(['a..b', 'c']);
+        });
+        it('should return the whole string if no dots', () => {
+            expect(splitDotExceptDouble('abc')).toEqual(['abc']);
+        });
+        it('should handle leading dot', () => {
+            expect(splitDotExceptDouble('.a.b')).toEqual(['', 'a', 'b']);
+        });
+        it('should handle trailing dot', () => {
+            expect(splitDotExceptDouble('a.b.')).toEqual(['a', 'b', '']);
+        });
+        it('should handle only dots', () => {
+            expect(splitDotExceptDouble('..')).toEqual(['.']);
+            expect(splitDotExceptDouble('...')).toEqual(['..']);
+            expect(splitDotExceptDouble('....')).toEqual(['...']);
+        });
+        it('should handle empty string', () => {
+            expect(splitDotExceptDouble('')).toEqual(['']);
+        });
+        it('should handle consecutive double dots', () => {
+            expect(splitDotExceptDouble('a..b..c')).toEqual(['a.b.c']);
+        });
+        it('should handle mixed single and double dots', () => {
+            expect(splitDotExceptDouble('a.b..c.d')).toEqual(['a', 'b.c', 'd']);
+        });
+    });
+
+    describe('LayeredConfig', () => {
+        it('should return undefined for "then" to support async/await', () => {
+            const config = LayeredConfig.fromLayers([]);
+            // @ts-ignore
+            expect(config.then).toBeUndefined();
+        });
+    });
 }

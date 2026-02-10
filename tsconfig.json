@@ -8,12 +8,14 @@
     "declaration": true,
     "esModuleInterop": true,
     "outDir": "./dist",
+
     /* Bundler mode */
     "moduleResolution": "bundler",
     "verbatimModuleSyntax": true,
     "forceConsistentCasingInFileNames": true,
     "moduleDetection": "force",
     "removeComments": false,
+
     /* Linting */
     "strict": true,
     "noUnusedLocals": true,
