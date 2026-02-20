@@ -38,7 +38,7 @@ try {
     yaml = await import('js-yaml');
     hasDecoratorsInstalled = true;
 } catch (e) {
-    console.info("Missing dependency: js-yaml not installed");
+    console.info("Missing dependency: js-yaml not installed; re-run test from within the examples/yaml dir");
 }
 
 // ⬇️ Conditionally run the test suite ⬇️

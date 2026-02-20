@@ -195,6 +195,20 @@ const cfg = LayeredConfig.fromLayers<{apikey: string}>(
 );
 ```
 
+#### Accepting nulls and undefiined values
+
+By default not defined keys in one of the config layer, null and undefined values are treated as transparent, so values from other layers are used. However you can change the behavior, if null or undefined is accepted as a config value for you, you can set it using relevant option.
+
+```ts
+import {LayeredConfig} from 'config-layers';
+const cfg = LayeredConfig.fromLayers<{apikey: string}>(
+  [{/*...*/}], //provide your config layers here
+  {
+    acceptNull: true,
+    acceptUndefined: true,
+  }
+);
+```
 
 ### Fallbacks
 

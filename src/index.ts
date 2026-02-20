@@ -20,20 +20,25 @@ function splitDotExceptDouble(str: string): string[] {
     });
 }
 
-function deepMerge<T extends object, U extends object>(target: T, source: U): T & U {
+function deepMerge<T extends object, U extends object>(target: T, source: U, options?: Partial<ConfigOptions>): T & U {
     for (const key in source) {
-        if (
-            Object.prototype.hasOwnProperty.call(source, key) &&
-            typeof source[key] === 'object' &&
-            source[key] !== null &&
-            !Array.isArray(source[key])
-        ) {
-            if (!(key in target)) {
-                (target as any)[key] = {};
+        if (Object.prototype.hasOwnProperty.call(source, key)) {
+            const value = source[key];
+            if (value === null && !options?.acceptNull) continue;
+            if (value === undefined && !options?.acceptUndefined) continue;
+
+            if (
+                typeof value === 'object' &&
+                value !== null &&
+                !Array.isArray(value)
+            ) {
+                if (!(key in target)) {
+                    (target as any)[key] = {};
+                }
+                deepMerge((target as any)[key], value as object, options);
+            } else {
+                (target as any)[key] = value;
             }
-            deepMerge((target as any)[key], (source as any)[key]);
-        } else {
-            (target as any)[key] = source[key];
         }
     }
     return target as T & U;
@@ -106,9 +111,6 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
         options: Partial<ConfigOptions> | undefined = undefined,
     ) {
         this.layers = layers;
-        this.flattened = Array.from(this.layers.values()).reduce((acc, layer) => {
-            return deepMerge(acc, layer);
-        }, {} as DeepOptionalAndUndefined<Schema>);
 
         this.options = {
             ...{
@@ -116,11 +118,15 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
                     throw new Error(`Key not found: ${String(key)}`);
                 },
                 freeze: true,
+                acceptNull: false,
+                acceptUndefined: false,
             },
             ...options ?? {}
         };
 
-
+        this.flattened = Array.from(this.layers.values()).reduce((acc, layer) => {
+            return deepMerge(acc, layer, this.options);
+        }, {} as DeepOptionalAndUndefined<Schema>);
     }
 
     private options: ConfigOptions;
@@ -162,10 +168,12 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
             has(_target, key) {
                 const treeKeyParts = isString(key) ? splitDotExceptDouble(key) : [key];
                 if (treeKeyParts.length == 1) {
-                    return instance.__getFlat(treeKeyParts[0]) !== undefined;
+                    const val = instance.__getFlat(treeKeyParts[0], undefined, true);
+                    return val !== undefined && (val !== null || !!instance.options.acceptNull);
                 }
                 if (treeKeyParts.length > 1) {
-                    return instance.__getComplex(key) !== undefined;
+                    const val = instance.__getComplex(key, undefined, true);
+                    return val !== undefined && (val !== null || !!instance.options.acceptNull);
                 }
                 return false;
             },
@@ -186,11 +194,19 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
             },
             ownKeys(): Array<string | symbol> {
                 const layers = Array.from(instance.layers.values());
-                const allKeys = layers.map(l => Object.keys(l));
-                const keys = Array.from(
-                    new Set(allKeys.flat())
-                );
-                return {...keys, length: keys.length};
+                const keys = new Set<string | symbol>();
+                for (const layer of layers) {
+                    for (const key in layer) {
+                        if (Object.prototype.hasOwnProperty.call(layer, key)) {
+                            const value = (layer as any)[key];
+                            if (value === null && !instance.options.acceptNull) continue;
+                            if (value === undefined && !instance.options.acceptUndefined) continue;
+                            keys.add(key);
+                        }
+                    }
+                }
+                const keysArray = Array.from(keys);
+                return {...keysArray, length: keysArray.length};
             },
             get(_target, key: string | symbol, _receiver) {
 
@@ -302,13 +318,15 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
                 }
             }
             if(found){
+                if (currentLayer === null && !this.options.acceptNull) continue;
+                if (currentLayer === undefined && !this.options.acceptUndefined) continue;
                 results.push({layer: layerName, value: currentLayer});
             }
         }
         return results;
     }
 
-    private __getComplex<K extends keyof Schema>(key: K | number | symbol, fallback?: unknown) {
+    private __getComplex<K extends keyof Schema>(key: K | number | symbol, fallback?: unknown, silent: boolean = false) {
 
         const treeKeyParts = isString(key) ? splitDotExceptDouble(key) : [key];
 
@@ -317,6 +335,7 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
         let resultingObject: any = {};
 
         let current: any = undefined;
+        let isFinalValueFound = false;
         //execute for each layer
         for (const layer of layers) {
 
@@ -334,13 +353,18 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
                     break;
                 }
             }
-            //if we have a plain value, return it, this is our value
-            if (found && typeof currentLayer != 'object') {
-                current = currentLayer;
-                break;
-            } else {
-                //we have an object, merge it into the resulting object
-                if (found && typeof currentLayer === 'object') {
+
+            if (found) {
+                if (currentLayer === null && !this.options.acceptNull) continue;
+                if (currentLayer === undefined && !this.options.acceptUndefined) continue;
+
+                //if we have a plain value, return it, this is our value
+                if (typeof currentLayer != 'object' || currentLayer === null) {
+                    current = currentLayer;
+                    isFinalValueFound = true;
+                    break;
+                } else {
+                    //we have an object, merge it into the resulting object
                     current = undefined;
                     resultingObject = {
                         ...resultingObject,
@@ -349,23 +373,25 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
                 }
             }
         }
-        if (current !== undefined) {
+        if (isFinalValueFound) {
             return current;
         }
         if (Object.keys(resultingObject).length > 0) {
             return resultingObject;
         }
-        if (fallback)
+        if (fallback !== undefined)
             return fallback;
+        if (silent) return undefined;
         return this.options.notFoundHandler(key);
     }
 
-    private __getFlat<K extends keyof Schema>(key: K | number | symbol, fallback?: unknown) {
+    private __getFlat<K extends keyof Schema>(key: K | number | symbol, fallback?: unknown, silent: boolean = false) {
         const value = this.flattened[key as K];
-        if (value !== undefined)
+        if (value !== undefined || (key in this.flattened && this.options.acceptUndefined))
             return value;
-        if (fallback)
+        if (fallback !== undefined)
             return fallback;
+        if (silent) return undefined;
         return this.options.notFoundHandler(key);
     }
 
@@ -408,9 +434,15 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
             for (const layerName of precedence) {
 
                 const layer = this.layers.get(layerName);
-                const isPresent = !!(layer && (key in layer));
+                let isPresent = !!(layer && (key in layer));
+                let value = isPresent ? layer?.[key as K] : undefined;
+
+                if (isPresent) {
+                    if (value === null && !this.options.acceptNull) isPresent = false;
+                    if (value === undefined && !this.options.acceptUndefined) isPresent = false;
+                }
+
                 //set found to true only for first occurance, not for any subsequent ones
-                const value = isPresent ? layer?.[key as K] : undefined;
                 const isActive = isPresent ? !found : false;
 
                 result.layers.push({
@@ -443,16 +475,21 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
                         break;
                     }
                 }
+                if (found) {
+                    if (current === null && !this.options.acceptNull) found = false;
+                    if (current === undefined && !this.options.acceptUndefined) found = false;
+                }
+
                 if (!found)
                     current = undefined;
-                const isActive = found && current !== undefined;
+                const isActive = found && result.resolved.value === undefined;
                 result.layers.push({
                     layer: layer as LayerName,
-                    value: isActive ? current : undefined,
+                    value: found ? current : undefined,
                     isPresent: found,
-                    isActive: isActive && result.resolved.value === undefined,
+                    isActive: isActive,
                 })
-                if (isActive && result.resolved.value === undefined) {
+                if (isActive) {
                     result.resolved.value = current as Schema[K];
                     result.resolved.source = layer as LayerName;
                 }

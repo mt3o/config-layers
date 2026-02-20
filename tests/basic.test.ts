@@ -205,3 +205,70 @@ describe('proxy handlers', () => {
         ]);
     })
 });
+
+
+describe('handling of null values',()=>{
+
+    interface cfg {
+        endpoint: string;
+    }
+
+    const defaultConfig: cfg = {
+        endpoint: "tcp://localhost:5556",
+    };
+    it('ignores null values by default',()=>{
+        const serverConfig = LayeredConfig.fromLayers<cfg>([
+            {name: 'default', config: defaultConfig},
+            {name: 'env', config: {
+                    endpoint: null
+            }},
+        ]);
+        expect(Object.keys(serverConfig)).toEqual(['endpoint']);
+        expect(serverConfig.endpoint).toBe(defaultConfig.endpoint);
+    });
+        it('accepts null values when enabled by option',()=>{
+        const serverConfig = LayeredConfig.fromLayers<cfg>([
+            {name: 'default', config: defaultConfig},
+            {name: 'env', config: {
+                    endpoint: null
+            }},
+        ],{
+            acceptNull: true
+        });
+        expect(Object.keys(serverConfig)).toEqual(['endpoint']);
+        expect(serverConfig.endpoint).toBe(null);
+    });
+});
+
+describe('handling of undefined values',()=>{
+
+    interface cfg {
+        endpoint: string;
+    }
+
+    const defaultConfig: cfg = {
+        endpoint: "tcp://localhost:5556",
+    };
+    it('ignores undefined values by default',()=>{
+        const serverConfig = LayeredConfig.fromLayers<cfg>([
+            {name: 'default', config: defaultConfig},
+            {name: 'env', config: {
+                    endpoint: undefined
+            }},
+        ]);
+        expect(Object.keys(serverConfig)).toEqual(['endpoint']);
+        expect(serverConfig.endpoint).toBe(defaultConfig.endpoint);
+    });
+    it('accepts undefined values when enabled by option',()=>{
+        const serverConfig = LayeredConfig.fromLayers<cfg>([
+            {name: 'default', config: defaultConfig},
+            {name: 'env', config: {
+                    endpoint: undefined
+            }},
+        ],{
+            acceptUndefined: true
+        });
+        expect(Object.keys(serverConfig)).toEqual(['endpoint']);
+        expect(serverConfig.endpoint).toBe(undefined);
+    });
+});
