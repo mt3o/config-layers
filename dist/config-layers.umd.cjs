@@ -10,15 +10,20 @@
       return part.replace(/\.{2,}/gu, (match) => match.slice(1));
     });
   }
-  function deepMerge(target, source) {
+  function deepMerge(target, source, options) {
     for (const key in source) {
-      if (Object.prototype.hasOwnProperty.call(source, key) && typeof source[key] === "object" && source[key] !== null && !Array.isArray(source[key])) {
-        if (!(key in target)) {
-          target[key] = {};
+      if (Object.prototype.hasOwnProperty.call(source, key)) {
+        const value = source[key];
+        if (value === null && !options?.acceptNull) continue;
+        if (value === void 0 && !options?.acceptUndefined) continue;
+        if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+          if (!(key in target)) {
+            target[key] = {};
+          }
+          deepMerge(target[key], value, options);
+        } else {
+          target[key] = value;
         }
-        deepMerge(target[key], source[key]);
-      } else {
-        target[key] = source[key];
       }
     }
     return target;
@@ -40,18 +45,20 @@
     flattened;
     constructor(layers, options = void 0) {
       this.layers = layers;
-      this.flattened = Array.from(this.layers.values()).reduce((acc, layer) => {
-        return deepMerge(acc, layer);
-      }, {});
       this.options = {
         ...{
           notFoundHandler: (key) => {
             throw new Error(`Key not found: ${String(key)}`);
           },
-          freeze: true
+          freeze: true,
+          acceptNull: false,
+          acceptUndefined: false
         },
         ...options ?? {}
       };
+      this.flattened = Array.from(this.layers.values()).reduce((acc, layer) => {
+        return deepMerge(acc, layer, this.options);
+      }, {});
     }
     options;
     /**
@@ -82,10 +89,12 @@
         has(_target, key) {
           const treeKeyParts = isString(key) ? splitDotExceptDouble(key) : [key];
           if (treeKeyParts.length == 1) {
-            return instance.__getFlat(treeKeyParts[0]) !== void 0;
+            const val = instance.__getFlat(treeKeyParts[0], void 0, true);
+            return val !== void 0 && (val !== null || !!instance.options.acceptNull);
           }
           if (treeKeyParts.length > 1) {
-            return instance.__getComplex(key) !== void 0;
+            const val = instance.__getComplex(key, void 0, true);
+            return val !== void 0 && (val !== null || !!instance.options.acceptNull);
           }
           return false;
         },
@@ -106,11 +115,19 @@
         },
         ownKeys() {
           const layers2 = Array.from(instance.layers.values());
-          const allKeys = layers2.map((l) => Object.keys(l));
-          const keys = Array.from(
-            new Set(allKeys.flat())
-          );
-          return { ...keys, length: keys.length };
+          const keys = /* @__PURE__ */ new Set();
+          for (const layer of layers2) {
+            for (const key in layer) {
+              if (Object.prototype.hasOwnProperty.call(layer, key)) {
+                const value = layer[key];
+                if (value === null && !instance.options.acceptNull) continue;
+                if (value === void 0 && !instance.options.acceptUndefined) continue;
+                keys.add(key);
+              }
+            }
+          }
+          const keysArray = Array.from(keys);
+          return { ...keysArray, length: keysArray.length };
         },
         get(_target, key, _receiver) {
           if (key === "__inspect") {
@@ -186,16 +203,19 @@
           }
         }
         if (found) {
+          if (currentLayer === null && !this.options.acceptNull) continue;
+          if (currentLayer === void 0 && !this.options.acceptUndefined) continue;
           results.push({ layer: layerName, value: currentLayer });
         }
       }
       return results;
     }
-    __getComplex(key, fallback) {
+    __getComplex(key, fallback, silent = false) {
       const treeKeyParts = isString(key) ? splitDotExceptDouble(key) : [key];
       const layers = Array.from(this.layers.values()).reverse();
       let resultingObject = {};
       let current = void 0;
+      let isFinalValueFound = false;
       for (const layer of layers) {
         if (!layer) continue;
         let currentLayer = layer;
@@ -208,11 +228,14 @@
             break;
           }
         }
-        if (found && typeof currentLayer != "object") {
-          current = currentLayer;
-          break;
-        } else {
-          if (found && typeof currentLayer === "object") {
+        if (found) {
+          if (currentLayer === null && !this.options.acceptNull) continue;
+          if (currentLayer === void 0 && !this.options.acceptUndefined) continue;
+          if (typeof currentLayer != "object" || currentLayer === null) {
+            current = currentLayer;
+            isFinalValueFound = true;
+            break;
+          } else {
             current = void 0;
             resultingObject = {
               ...resultingObject,
@@ -221,22 +244,24 @@
           }
         }
       }
-      if (current !== void 0) {
+      if (isFinalValueFound) {
         return current;
       }
       if (Object.keys(resultingObject).length > 0) {
         return resultingObject;
       }
-      if (fallback)
+      if (fallback !== void 0)
         return fallback;
+      if (silent) return void 0;
       return this.options.notFoundHandler(key);
     }
-    __getFlat(key, fallback) {
+    __getFlat(key, fallback, silent = false) {
       const value = this.flattened[key];
-      if (value !== void 0)
+      if (value !== void 0 || key in this.flattened && this.options.acceptUndefined)
         return value;
-      if (fallback)
+      if (fallback !== void 0)
         return fallback;
+      if (silent) return void 0;
       return this.options.notFoundHandler(key);
     }
     /**
@@ -275,8 +300,12 @@
         let found = false;
         for (const layerName of precedence) {
           const layer = this.layers.get(layerName);
-          const isPresent = !!(layer && key in layer);
-          const value = isPresent ? layer?.[key] : void 0;
+          let isPresent = !!(layer && key in layer);
+          let value = isPresent ? layer?.[key] : void 0;
+          if (isPresent) {
+            if (value === null && !this.options.acceptNull) isPresent = false;
+            if (value === void 0 && !this.options.acceptUndefined) isPresent = false;
+          }
           const isActive = isPresent ? !found : false;
           result.layers.push({
             layer: layerName,
@@ -305,16 +334,20 @@
               break;
             }
           }
+          if (found) {
+            if (current === null && !this.options.acceptNull) found = false;
+            if (current === void 0 && !this.options.acceptUndefined) found = false;
+          }
           if (!found)
             current = void 0;
-          const isActive = found && current !== void 0;
+          const isActive = found && result.resolved.value === void 0;
           result.layers.push({
             layer,
-            value: isActive ? current : void 0,
+            value: found ? current : void 0,
             isPresent: found,
-            isActive: isActive && result.resolved.value === void 0
+            isActive
           });
-          if (isActive && result.resolved.value === void 0) {
+          if (isActive) {
             result.resolved.value = current;
             result.resolved.source = layer;
           }

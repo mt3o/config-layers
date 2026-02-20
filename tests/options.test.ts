@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { LayeredConfig } from '../src/index';
 
 describe('Config options acceptNull and acceptUndefined', () => {
