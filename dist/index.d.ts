@@ -64,6 +64,10 @@ export declare class LayeredConfig<Schema extends Record<string | symbol, any> =
         name: LayerName;
         config: DeepOptionalAndUndefined<Schema>;
     }>, options?: Partial<ConfigOptions>): ConfigHandle<Schema>;
+    static fromLayersAsync<Schema extends Record<string | symbol, any>>(layers: Array<{
+        name: LayerName;
+        config: Promise<DeepOptionalAndUndefined<Schema>> | DeepOptionalAndUndefined<Schema>;
+    }>, options?: Partial<ConfigOptions>): Promise<ConfigHandle<Schema>>;
     private __withFallback;
     private __derive;
     private __getAll;

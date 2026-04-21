@@ -10,6 +10,22 @@
       return part.replace(/\.{2,}/gu, (match) => match.slice(1));
     });
   }
+  function deepMergeArrayField(target, source, key, value, options) {
+    const strategy = options?.arrayMergeStrategy ?? "override";
+    const localOverrideStrategyFieldName = options?.arrayLocalMergeStrategyNameSuffix ? `${key}${options.arrayLocalMergeStrategyNameSuffix}` : void 0;
+    const localOverrideStrategy = localOverrideStrategyFieldName !== void 0 ? source?.[localOverrideStrategyFieldName] ?? target?.[localOverrideStrategyFieldName] : strategy;
+    switch (localOverrideStrategy) {
+      case "concat":
+        target[key] = [...target[key], ...value];
+        break;
+      case "union":
+        target[key] = Array.from(/* @__PURE__ */ new Set([...target[key], ...value]));
+        break;
+      case "override":
+      default:
+        target[key] = value;
+    }
+  }
   function deepMerge(target, source, options) {
     for (const key in source) {
       if (Object.prototype.hasOwnProperty.call(source, key)) {
@@ -21,6 +37,8 @@
             target[key] = {};
           }
           deepMerge(target[key], value, options);
+        } else if (Array.isArray(value) && Array.isArray(target[key])) {
+          deepMergeArrayField(target, source, key, value, options);
         } else {
           target[key] = value;
         }
@@ -151,6 +169,12 @@
           }
         }
       });
+    }
+    static async fromLayersAsync(layers, options) {
+      const resolved = await Promise.all(
+        layers.map(async (l) => ({ name: l.name, config: await l.config }))
+      );
+      return LayeredConfig.fromLayers(resolved, options);
     }
     __withFallback(key, fallback) {
       const treeKeyParts = isString(key) ? splitDotExceptDouble(key) : [key];
