@@ -9,7 +9,8 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/config-layers.js",
-      "require": "./dist/config-layers.cjs"
+      "require": "./dist/config-layers.cjs",
+      "default": "./dist/config-layers.js"
     },
     "./package.json": "./package.json"
   },
