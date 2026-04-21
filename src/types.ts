@@ -89,6 +89,7 @@ export type WithGetAll<Schema> = {
     }>;
 }
 
+export type ArrayMergeStrategy = 'override' | 'concat' | 'union';
 
 export type ConfigOptions = {
     /** A function called when a requested key does not exist in any layer. */
@@ -110,6 +111,21 @@ export type ConfigOptions = {
      * If `true`, `undefined` values are considered valid and will be included in the effective configuration.
      */
     acceptUndefined?: boolean;
+
+    /**
+     * Specifies the strategy for merging arrays.
+     * - `override`: Overwrites the existing array with the new one.
+     * - `concat`: Concatenates the new array to the existing one.
+     * - `union`: Combines the arrays into a unique set.
+     */
+    arrayMergeStrategy?: ArrayMergeStrategy;
+    /**
+     * When object containing an array is merged, special field indicated by referenced field name + suffix to check
+     * if different array merging strategy should be used instead of the global one. If not set, the global strategy is used.
+     * In other words, by creating a field with name+suffix, the array merging strategy can be customized for specific cases.
+     * Values for that field must be one of the ArrayMergeStrategy values.
+     */
+    arrayLocalMergeStrategyNameSuffix?: string;
 }
 
 /**

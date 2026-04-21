@@ -2,7 +2,9 @@ import type {
     LayerName,
     ConfigInspectionResult,
     ConfigOptions,
-    ConfigHandle, DeepOptionalAndUndefined,
+    ConfigHandle,
+    DeepOptionalAndUndefined,
+    ArrayMergeStrategy,
 } from "./types";
 
 export type {LayerName, ConfigInspectionResult, ConfigOptions, ConfigHandle, DeepOptionalAndUndefined};
@@ -18,6 +20,42 @@ function splitDotExceptDouble(str: string): string[] {
         //and remove the additional dot from the doubled parts
         return part.replace(/\.{2,}/gu, match=>match.slice(1));
     });
+}
+
+/**
+ * Deeply merges an array field into the target object based on the specified merge strategy.
+ * It supports different strategies {ArrayMergeStrategy}, to determine
+ * how the new array values are merged with the existing ones. So - are they merged/concat/replaced
+ *
+ * @param {T} target - The target object where the array field will be merged.
+ * @param {U} source - The source object containing the array field and potentially strategy overrides.
+ * @param {string} key - The key of the array field in the target object to be merged.
+ * @param {any[]} value - The array of values to merge into the target object's array field.
+ * @param {Partial<ConfigOptions>} [options] - Optional configuration, including the global array merge strategy and the local strategy field suffix.
+ * @returns {void} This function does not return a value; it modifies the target object in place.
+ */
+function deepMergeArrayField<T extends object, U extends object>(target: T, source: U, key: string, value: any[], options?: Partial<ConfigOptions>,) {
+    const strategy = options?.arrayMergeStrategy ?? 'override';
+
+    const localOverrideStrategyFieldName = options?.arrayLocalMergeStrategyNameSuffix
+        ? `${key}${options.arrayLocalMergeStrategyNameSuffix}`
+        : undefined;
+
+    const localOverrideStrategy: ArrayMergeStrategy|string = localOverrideStrategyFieldName!==undefined
+        ? (source as any)?.[localOverrideStrategyFieldName] ?? (target as any)?.[localOverrideStrategyFieldName]
+        : strategy;
+
+    switch(localOverrideStrategy){
+        case 'concat':
+            (target as any)[key] = [...(target as any)[key], ...value];
+            break;
+        case 'union':
+            (target as any)[key] = Array.from(new Set([...(target as any)[key], ...value]));
+            break;
+        case 'override':
+        default:
+            (target as any)[key] = value;
+    }
 }
 
 function deepMerge<T extends object, U extends object>(target: T, source: U, options?: Partial<ConfigOptions>): T & U {
@@ -36,6 +74,8 @@ function deepMerge<T extends object, U extends object>(target: T, source: U, opt
                     (target as any)[key] = {};
                 }
                 deepMerge((target as any)[key], value as object, options);
+            } else if (Array.isArray(value) && Array.isArray((target as any)[key])) {
+                deepMergeArrayField(target, source, key, value, options);
             } else {
                 (target as any)[key] = value;
             }

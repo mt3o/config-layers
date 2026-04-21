@@ -196,7 +196,7 @@ const cfg = LayeredConfig.fromLayers<{apikey: string}>(
 );
 ```
 
-#### Accepting nulls and undefiined values
+#### Accepting nulls and undefined values
 
 By default not defined keys in one of the config layer, null and undefined values are treated as transparent, so values from other layers are used. However you can change the behavior, if null or undefined is accepted as a config value for you, you can set it using relevant option.
 
@@ -209,6 +209,57 @@ const cfg = LayeredConfig.fromLayers<{apikey: string}>(
     acceptUndefined: true,
   }
 );
+```
+
+#### Array merging strategies
+
+When merging configuration layers, you can specify how arrays should be handled. By default, arrays are overwritten (`override`).
+
+Available strategies:
+- `override` (default): The higher priority array completely replaces the lower priority one.
+- `concat`: The higher priority array is appended to the lower priority one.
+- `union`: The arrays are merged, and only unique values are kept.
+
+You can set a global strategy or use a local override for specific fields.
+
+```ts :@import.meta.vitest
+const {LayeredConfig} = await import('./dist/config-layers.js');
+
+const layers = [
+  { name: 'base', config: { tags: ['a', 'b'], flags: ['f1'] } },
+  { name: 'user', config: { tags: ['c'], flags: ['f2'] } },
+];
+
+const cfg = LayeredConfig.fromLayers(layers, {
+  arrayMergeStrategy: 'concat'
+});
+
+expect(cfg.tags).toEqual(['a', 'b', 'c']);
+expect(cfg.flags).toEqual(['f1', 'f2']);
+```
+
+To customize merging for a specific field only, use `arrayLocalMergeStrategyNameSuffix`. This allows you to define a sibling field in your config that specifies the strategy for that array.
+
+```ts :@import.meta.vitest
+const {LayeredConfig} = await import('./dist/config-layers.js');
+
+const layers = [
+  { name: 'base', config: { list: ['a', 'b'] } },
+  { 
+    name: 'override', 
+    config: { 
+      list: ['c'],
+      list_strategy: 'concat' // local override
+    } 
+  }
+];
+
+const cfg = LayeredConfig.fromLayers(layers, {
+  arrayMergeStrategy: 'override', // global default
+  arrayLocalMergeStrategyNameSuffix: '_strategy'
+});
+
+expect(cfg.list).toEqual(['a', 'b', 'c']);
 ```
 
 ### Fallbacks
