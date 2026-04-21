@@ -89,6 +89,7 @@ Please note that we don't validate your config objects against the schema at run
 
 ### API
 - `LayeredConfig.fromLayers(layers, options?)`: Create a layered config proxy.
+- `LayeredConfig.fromLayersAsync(layers, options?)`: Promise to be awaited that resolves all layers - for async loading.  
 - `cfg.${key}`: Get a value by key.
 - `cfg[key]`: Get a value by key.
 - `cfg.__inspect(key)`: Inspect the source and value for a key.

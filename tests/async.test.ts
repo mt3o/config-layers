@@ -33,8 +33,7 @@ describe('Async support', () => {
             { name: 'default', config: { apiUrl: 'http://localhost' } }
         ]);
 
-        // @ts-ignore
-        expect(config.then).toBeUndefined();
+        expect((config as any).then).toBeUndefined();
     });
 
     it('should handle async layer replacement', async () => {
@@ -67,5 +66,102 @@ describe('Async support', () => {
         expect(derivedConfig.timeout).toBe(5000);
         // Ensure other values remain from default layer
         expect(derivedConfig.apiUrl).toBe('http://localhost');
+    });
+});
+
+
+describe('LayeredConfig.fromLayersAsync', () => {
+
+    const delay = <T>(ms: number, value: T): Promise<T> =>
+        new Promise(resolve => setTimeout(() => resolve(value), ms));
+
+    type Schema = {
+        apiUrl: string;
+        timeout: number;
+        featureFlag: boolean;
+    }
+
+    describe('basic resolution', () => {
+        it('resolves a single promise layer', async () => {
+            const cfg = await LayeredConfig.fromLayersAsync<Schema>([
+                {name: 'default', config: delay(10, {apiUrl: 'http://localhost', timeout: 1000})}
+            ]);
+            expect(cfg.apiUrl).toBe('http://localhost');
+            expect(cfg.timeout).toBe(1000);
+        });
+
+        it('resolves multiple promise layers in priority order', async () => {
+            const cfg = await LayeredConfig.fromLayersAsync<Schema>([
+                {name: 'default', config: delay(20, {apiUrl: 'http://localhost', timeout: 1000})},
+                {name: 'env',     config: delay(5,  {timeout: 3000})},
+            ]);
+            // env layer has higher priority despite resolving first
+            expect(cfg.timeout).toBe(3000);
+            expect(cfg.apiUrl).toBe('http://localhost');
+        });
+    });
+
+    describe('mixed sync and async layers', () => {
+        it('accepts a mix of plain objects and promises', async () => {
+            const cfg = await LayeredConfig.fromLayersAsync<Schema>([
+                {name: 'default', config: {apiUrl: 'http://localhost', timeout: 1000}},
+                {name: 'remote',  config: delay(10, {featureFlag: true})},
+                {name: 'env',     config: {timeout: 5000}},
+            ]);
+            expect(cfg.timeout).toBe(5000);
+            expect(cfg.featureFlag).toBe(true);
+            expect(cfg.apiUrl).toBe('http://localhost');
+        });
+    });
+
+    describe('error handling', () => {
+        it('rejects if any layer promise rejects', async () => {
+            const failing = Promise.reject(new Error('Remote config unavailable'));
+            await expect(
+                LayeredConfig.fromLayersAsync<Schema>([
+                    {name: 'default', config: {apiUrl: 'http://localhost', timeout: 1000}},
+                    {name: 'remote',  config: failing},
+                ])
+            ).rejects.toThrow('Remote config unavailable');
+        });
+    });
+
+    describe('options passthrough', () => {
+        it('passes options to the underlying fromLayers call', async () => {
+            const cfg = await LayeredConfig.fromLayersAsync<Schema>(
+                [{name: 'default', config: delay(10, {})}],
+                {notFoundHandler: () => 'missing'}
+            );
+            expect((cfg as any).nonExistentKey).toBe('missing');
+        });
+
+        it('respects freeze: false option', async () => {
+            const cfg = await LayeredConfig.fromLayersAsync<Schema>(
+                [{name: 'default', config: delay(10, {timeout: 1000})}],
+                {freeze: false}
+            );
+            expect(cfg.timeout).toBe(1000);
+        });
+    });
+
+    describe('result behaves identically to fromLayers', () => {
+        it('supports __inspect on async-loaded config', async () => {
+            const cfg = await LayeredConfig.fromLayersAsync<Schema>([
+                {name: 'default', config: delay(10, {apiUrl: 'http://localhost', timeout: 1000})},
+                {name: 'env',     config: delay(5,  {timeout: 3000})},
+            ]);
+            const inspection = cfg.__inspect('timeout');
+            expect(inspection.resolved.source).toBe('env');
+            expect(inspection.resolved.value).toBe(3000);
+        });
+
+        it('supports __derive on async-loaded config', async () => {
+            const cfg = await LayeredConfig.fromLayersAsync<Schema>([
+                {name: 'default', config: delay(10, {apiUrl: 'http://localhost', timeout: 1000})},
+            ]);
+            const derived = cfg.__derive('hotfix', {timeout: 500});
+            expect(derived.timeout).toBe(500);
+            expect(derived.apiUrl).toBe('http://localhost');
+        });
     });
 });

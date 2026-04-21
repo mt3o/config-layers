@@ -236,6 +236,19 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
         }) as unknown as ConfigHandle<Schema>;
     }
 
+    public static async fromLayersAsync<Schema extends Record<string | symbol, any>>(
+    layers: Array<{
+        name: LayerName,
+        config: Promise<DeepOptionalAndUndefined<Schema>> | DeepOptionalAndUndefined<Schema>
+    }>,
+    options?: Partial<ConfigOptions>
+    ): Promise<ConfigHandle<Schema>> {
+        const resolved = await Promise.all(
+            layers.map(async l => ({ name: l.name, config: await l.config }))
+        );
+        return LayeredConfig.fromLayers<Schema>(resolved, options);
+    }
+
     private __withFallback<K extends keyof Schema, T>(key: K | number | symbol, fallback: T): T | Partial<Schema> {
         const treeKeyParts = isString(key) ? splitDotExceptDouble(key) : [key];
         if (treeKeyParts.length == 1) {

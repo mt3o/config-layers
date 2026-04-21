@@ -3,11 +3,14 @@
     "target": "ES2022",
     "useDefineForClassFields": true,
     "module": "ESNext",
-    "lib": [],
+    "lib": ["ES2022", "DOM"],
     "skipLibCheck": true,
     "declaration": true,
     "esModuleInterop": true,
     "outDir": "./dist",
+    "rootDir": "./src",
+
+    "types": ["node"],
 
     /* Bundler mode */
     "moduleResolution": "bundler",
