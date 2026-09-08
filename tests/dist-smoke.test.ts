@@ -60,6 +60,18 @@ describe.skipIf(!built)('packaged build', () => {
         }
     });
 
+    it('every bundle carries the license banner', () => {
+        const pkg = JSON.parse(readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf-8'));
+        for (const file of ['config-layers.js', 'config-layers.cjs', 'config-layers.umd.cjs']) {
+            const first = readFileSync(dist(file), 'utf-8').split('\n')[0];
+            // `/*!` marks it legal, which is what stops a downstream minifier dropping it
+            expect(first, file).toMatch(/^\/\*!/);
+            expect(first, file).toContain(pkg.name);
+            expect(first, file).toContain(pkg.version);
+            expect(first, file).toContain(pkg.license);
+        }
+    });
+
     describe('sideEffects: false is honest', () => {
         // Bundlers trust this flag blindly - if the module ever gains a top-level side effect, they
         // will still drop it and the consumer breaks silently. These pin the promise instead.
@@ -84,22 +96,28 @@ describe.skipIf(!built)('packaged build', () => {
             // an assignment to something external, or a loop at module scope would break the
             // flag's promise.
             //
-            // The one tolerated exception is the in-source test block, `if (import.meta.vitest)`.
-            // It is inert in any consumer build - the flag is undefined outside vitest, so the body
-            // never runs and nothing is observable - but it is still dead weight in the shipped
-            // bundle. Stripping it at build time is TODO §1.1; once that lands this allowance can
-            // go, and the check gets stricter for free.
-            const inSourceTestGuard = /^if \(import\.meta\.[a-z]+\) \{$/;
-
+            // This used to tolerate the in-source test block, `if (import.meta.<flag>) { ... }`,
+            // which shipped as the bundle's only module-scope statement. The build now strips it,
+            // so the check admits no exceptions.
             const src = readFileSync(dist('config-layers.js'), 'utf-8');
             const offenders = src
                 .split('\n')
-                // top-level only: unindented, non-blank, not a comment. Indentation has to be
-                // judged before trimming, or every nested line looks top-level.
+                // top-level only: unindented, non-blank, not a comment (which also skips the
+                // license banner). Indentation has to be judged before trimming, or every nested
+                // line looks top-level.
                 .filter((line) => /^[^\s/*]/.test(line))
-                .filter((line) => !/^(const|let|var|function|class|export|import|\}|\)|\];?|`)/.test(line))
-                .filter((line) => !inSourceTestGuard.test(line));
+                .filter((line) => !/^(const|let|var|function|class|export|import|\}|\)|\];?|`)/.test(line));
             expect(offenders).toEqual([]);
+        });
+
+        it('the in-source test suite is not shipped', () => {
+            for (const file of ['config-layers.js', 'config-layers.cjs', 'config-layers.umd.cjs']) {
+                const src = readFileSync(dist(file), 'utf-8');
+                expect(src, file).not.toMatch(/\bdescribe\(/);
+                expect(src, file).not.toMatch(/\btoEqual\(/);
+                // the CJS/UMD form the flag degrades to when it is not defined away
+                expect(src, file).not.toMatch(/if \(void 0\)/);
+            }
         });
     });
 

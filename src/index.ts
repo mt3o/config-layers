@@ -218,6 +218,14 @@ function cloneOwned(value: any): any {
     return Object.create(Object.getPrototypeOf(value), descriptors);
 }
 
+/**
+ * Turns the layer map back into the array shape `fromLayers` takes, preserving both insertion
+ * order and symbol-named layers - neither of which survives a round-trip through a plain object.
+ */
+function __layerList<V>(layers: Map<LayerName, V>): Array<{ name: LayerName, config: V }> {
+    return Array.from(layers, ([name, config]) => ({name, config}));
+}
+
 function deepMerge<T extends object, U extends object>(target: T, source: U, options?: Partial<ConfigOptions>): T & U {
     for (const key in source) {
         if (Object.prototype.hasOwnProperty.call(source, key)) {
@@ -286,8 +294,25 @@ function finalizeOwned<T extends object>(node: T, freeze: boolean): T {
 }
 
 /**
+ * True unless freezing the value would break it.
+ *
+ * Two built-ins cannot take a freeze:
+ *  - **typed arrays and `Buffer`**: `Object.freeze` on an `ArrayBuffer` view that has elements
+ *    throws outright, so freezing one would abort construction;
+ *  - **`RegExp`**: `test` and `exec` write `lastIndex` on `/g` and `/y` patterns, so a frozen
+ *    regex throws the first time it is used.
+ *
+ * Skipping them costs nothing. `cloneOwned` has already copied the value, so the caller's object
+ * is protected either way, and a regex pattern or a buffer's byte length were never mutable
+ * through property assignment to begin with.
+ */
+function isFreezable(value: object): boolean {
+    return !ArrayBuffer.isView(value) && !(value instanceof RegExp);
+}
+
+/**
  * Freezes the merged result. Everything reachable from it is the config's own copy by this point
- * (see `cloneOwned`), so there is nothing here that belongs to the caller and nothing is skipped.
+ * (see `cloneOwned`), so nothing here belongs to the caller.
  *
  * `Object.freeze` does not reach state held in internal slots, so a frozen `Map` still accepts
  * `map.set(...)` and a frozen `Date` still accepts `setTime(...)`. Their *contents* are frozen
@@ -295,6 +320,7 @@ function finalizeOwned<T extends object>(node: T, freeze: boolean): T {
  */
 function deepFreeze<T>(obj: T): T {
     if (!obj || typeof obj !== "object" || Object.isFrozen(obj)) return obj;
+    if (!isFreezable(obj)) return obj;
 
     if (Array.isArray(obj)) {
         // Walk by index. `Object.getOwnPropertyNames` on an array materializes every index as a
@@ -454,11 +480,22 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
                 const val = instance.__resolve(key, isString(key) ? splitPath(key) : [key], undefined, true);
                 return val !== undefined && (val !== null || !!instance.options.acceptNull);
             },
-            getOwnPropertyDescriptor(_target, _prop) {
-                return {
-                    enumerable: true,
-                    configurable: true
-                };
+            getOwnPropertyDescriptor(_target, prop) {
+                // Must carry the actual value. Returning a descriptor without one made every tool
+                // that reads through descriptors rather than [[Get]] - `Object.getOwnPropertyDescriptors`,
+                // deep-equality helpers, some formatters - see `undefined` for every key.
+                //
+                // `configurable` has to stay true: reporting a non-configurable property that the
+                // target does not have is a proxy invariant violation and throws.
+                if (typeof prop === 'string' && hasOwn.call(instance.flattened, prop)) {
+                    return {
+                        value: (instance.flattened as any)[prop],
+                        writable: false,
+                        enumerable: true,
+                        configurable: true,
+                    };
+                }
+                return Reflect.getOwnPropertyDescriptor(_target, prop);
             },
             deleteProperty(_target, _prop) {
                 return false;
@@ -502,7 +539,20 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
                     return undefined;
                 }
 
-                if (!Object.prototype.hasOwnProperty.call(instance.flattened, key)) {
+                if (!hasOwn.call(instance.flattened, key)) {
+                    // The handle is callable, so `typeof config === 'function'` and anything doing
+                    // function-shaped introspection - assertion libraries, loggers, DI containers -
+                    // reads `name` and `length` off it. Answer from the target rather than treating
+                    // them as missing config keys.
+                    if (hasOwn.call(_target, key)) return (_target as any)[key];
+
+                    // Duck-typing sentinels. `$$`-prefixed (React's `$$typeof`) and `@@`-wrapped
+                    // (`@@__IMMUTABLE_ITERABLE__@@`, transducer protocols) names are probes by
+                    // convention, never config keys - anything that formats or inspects a value
+                    // reads a handful of them off it. Note this only applies to keys the config
+                    // does not define, so a layer with a real `$$foo` key still resolves.
+                    if (key.startsWith('$$') || key.startsWith('@@')) return undefined;
+
                     switch (key) {
                         // `await config` must not treat the handle as a thenable
                         case 'then':
@@ -513,7 +563,6 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
                         case 'valueOf':
                             return () => '[object LayeredConfig]';
                         case 'constructor':
-                        case '$$typeof':
                         case 'nodeType':
                             return undefined;
                     }
@@ -552,40 +601,23 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
         opts?: Partial<ConfigOptions>
     ): ConfigHandle<Schema> {
 
-        const newLayers = Array.from(this.layers.entries())
-            .reduce(
-                (acc, [name, layer]) => {
-                    acc[name] = layer;
-                    return acc;
-                }, {} as Record<LayerName, DeepOptionalAndUndefined<Schema>>);
+        // A Map copy, not a plain-object round-trip. Going through an object lost symbol-named
+        // layers entirely (`Object.entries` skips symbols) and silently reordered numeric-looking
+        // names like '2024' to the front, which inverted their precedence.
+        const newLayers = new Map(this.layers);
 
+        // Called with options only.
         if (typeof nameOrOpts === 'object' && layer === undefined) {
-            // called with opts only
-
-            const newOpts: ConfigOptions = Object.assign({}, this.options, nameOrOpts)
-
-            return LayeredConfig.fromLayers(
-                Object.entries(newLayers).map(([name, config]) => ({name, config})),
-                newOpts
-            );
-
+            return LayeredConfig.fromLayers(__layerList(newLayers), Object.assign({}, this.options, nameOrOpts));
         }
 
+        // Called with a layer to add or replace. Setting an existing key on a Map updates it in
+        // place and keeps its original position, so replacing a layer does not change precedence.
         if (typeof nameOrOpts === 'string' && layer !== undefined) {
-            newLayers[nameOrOpts] = layer;
-
-            return LayeredConfig.fromLayers(
-                Object.entries(newLayers).map(([name, config]) => ({name, config})),
-                Object.assign({}, this.options, opts ?? {})
-            );
+            newLayers.set(nameOrOpts, layer);
         }
 
-        return LayeredConfig.fromLayers(
-            Object.entries(newLayers)
-                .map(([name, config]) => ({name, config})),
-            Object.assign({}, this.options, opts ?? {})
-        )
-
+        return LayeredConfig.fromLayers(__layerList(newLayers), Object.assign({}, this.options, opts ?? {}));
     }
 
 
@@ -719,13 +751,13 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
             }
         }
 
-        if (keyParts.length == 1) {
+        if (keyParts.length === 1) {
             let found: boolean = false;
             for (const layerName of precedence) {
 
                 const layer = this.layers.get(layerName);
                 let isPresent = !!(layer && (key in layer));
-                let value = isPresent ? layer?.[key as K] : undefined;
+                const value = isPresent ? layer?.[key as K] : undefined;
 
                 if (isPresent) {
                     if (value === null && !this.options.acceptNull) isPresent = false;
@@ -790,9 +822,9 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
 }
 
 // in-source test suites
-// @ts-ignore
+// @ts-expect-error vitest augments import.meta only while its own types are loaded
 if (import.meta.vitest) {
-// @ts-ignore
+// @ts-expect-error same: import.meta.vitest is untyped in the library's own tsconfig
     const {describe, it, expect} = import.meta.vitest;
     describe('splitPath', () => {
         it('should split on single dots', () => {
@@ -833,7 +865,6 @@ if (import.meta.vitest) {
     describe('LayeredConfig', () => {
         it('should return undefined for "then" to support async/await', () => {
             const config = LayeredConfig.fromLayers([]);
-            // @ts-ignore
             expect(config.then).toBeUndefined();
         });
     });

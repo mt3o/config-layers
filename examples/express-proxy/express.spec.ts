@@ -87,7 +87,7 @@ cfg.enabled.forEach(serviceName=>{
         //equivalent of explicit calls for: app.get/post/put/delete/patch
         app[methodName]( target, async (req:any, res:any)=>{
 
-            let origin = req.headers['origin'] || '';
+            const origin = req.headers['origin'] || '';
             let headers = req.headers;
             if(!cfg.services[serviceName].changeOrigin){
                 //We block changing the origin header if changeOrigin is false

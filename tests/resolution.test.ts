@@ -4,11 +4,6 @@ import {LayeredConfig} from '../src';
 /**
  * Flat access (`cfg.a.b`) and dotted access (`cfg['a.b']`) must be the same operation.
  *
- * They were not: flat access read the merged result while dotted access re-walked the raw layers
- * with its own merge, which iterated highest-priority-first and shallow-spread each match. Lower
- * layers therefore overwrote higher ones, nested objects stopped merging after one level, arrays
- * came back as `{"0":"a","1":"b"}`, and array merge strategies were invisible. These pin the
- * single resolver.
  */
 describe('resolution', () => {
 
@@ -138,7 +133,10 @@ describe('resolution', () => {
 describe('freeze contract', () => {
 
     class Creds {
-        constructor(public user = 'u') {}
+        user: string;
+        constructor(user = 'u') {
+            this.user = user;
+        }
         describe() { return `user=${this.user}`; }
     }
 

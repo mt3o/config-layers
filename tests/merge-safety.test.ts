@@ -52,7 +52,12 @@ describe('merge safety', () => {
 
     describe('values that cannot be merged key-by-key are preserved', () => {
         class Creds {
-            constructor(public user = 'u', public pass = 'p') {}
+            user: string;
+            pass: string;
+            constructor(user = 'u', pass = 'p') {
+                this.user = user;
+                this.pass = pass;
+            }
             describe() { return `${this.user}:${this.pass}`; }
         }
 

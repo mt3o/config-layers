@@ -38,7 +38,7 @@ describe('Async support', () => {
 
     it('should handle async layer replacement', async () => {
         // Initial setup with two layers
-        let config = LayeredConfig.fromLayers<Schema>([
+        const config = LayeredConfig.fromLayers<Schema>([
             { name: 'default', config: { apiUrl: 'http://localhost', timeout: 1000 } },
             { name: 'env', config: { timeout: 2000 } }
         ]);

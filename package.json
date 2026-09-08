@@ -41,7 +41,8 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit",
-    "clean": "rimraf coverage build out tmp"
+    "clean": "rimraf coverage build out tmp",
+    "test:coverage": "vitest run --coverage"
   },
   "keywords": [
     "config",
@@ -63,7 +64,10 @@
   },
   "homepage": "https://github.com/mt3o/config-layers#readme",
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^24.5.2",
+    "@vitest/coverage-v8": "^4.1.11",
+    "eslint": "^10.10.0",
     "rimraf": "^6.1.3",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.59.0",

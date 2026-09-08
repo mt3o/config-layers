@@ -27,5 +27,22 @@ export default defineConfig({
             './docs/**/*.md',
             './examples/**/*.md',
         ],
+        coverage: {
+            provider: 'v8',
+            // Only the library itself. Tests, examples and config are not the shipped surface, and
+            // including them would inflate the number without measuring anything.
+            include: ['src/**/*.ts'],
+            // Type-only: erased at build time, so there is nothing to execute.
+            exclude: ['src/types.ts', 'src/vite-env.d.ts'],
+            reporter: ['text', 'html', 'lcov'],
+            // Set at what the suite actually reaches today, so a drop fails the build rather than
+            // going unnoticed. Raise them as coverage improves; do not lower them to go green.
+            thresholds: {
+                statements: 93,
+                branches: 87,
+                functions: 94,
+                lines: 95,
+            },
+        },
     },
 });
