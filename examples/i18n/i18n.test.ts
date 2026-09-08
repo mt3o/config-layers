@@ -60,7 +60,7 @@ describe('i18n use case', ()=>{
         const text=getLabelsFor('us','en'); //simple case, main language
         expect(text('ok',"ok...")).toBe("Ok!");
         expect(text('welcome..message',"hello")).toBe("Welcome!");
-        //@ts-ignore
+        //@ts-expect-error the point of the assertion is that this key is not in the schema
         expect(text('label.not.defined',"huh?")).toBe("huh?");
     })
     it('handles locale inheritance',()=>{

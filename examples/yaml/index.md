@@ -26,7 +26,7 @@ Here's a simple example of loading configuration from multiple YAML files:
 
 ```typescript yaml-sample:@import.meta.vitest
 // Import the required libraries
-const {LayeredConfig} = await import('../../dist/config-layers.js');
+//import {LayeredConfig} from 'config-layers';
 const fs = await import('fs');
 const url = await import('url');
 const path = await import('path');
@@ -186,7 +186,8 @@ const configWithCustomErrors = LayeredConfig.fromLayers<Schema>(
   }
 );
 
-// This will log a warning instead of throwing an error
+// Warning and undefined is also the default, so this handler is only worth writing when you
+// want different wording, a different return value, or to route it to your own logger.
 const missingValue = configWithCustomErrors.nonExistentKey;
 ```
 

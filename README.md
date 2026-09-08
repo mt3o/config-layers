@@ -41,7 +41,28 @@ All the merging is handled for you in a type-safe way. You define the config str
 - Fallback values and custom not-found handlers
 - Configuration inspection (see from which layer the valueF comes from)
 - Immutable config proxy, frozen config object
+- Runs on iOS 15 / Safari 15 (iPhone 6s); no regexes in the shipped bundle
 - TypeScript support
+
+## Browser support
+
+The library is built for **iOS 15 / Safari 15** — an iPhone 6s is the oldest device it is verified
+against — alongside Chrome 87, Firefox 78 and Edge 88. The build target is pinned explicitly in
+`vite.config.ts` rather than inherited from the bundler's shifting default.
+
+There is one hard floor that cannot be lowered: the config handle is a
+[`Proxy`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Proxy),
+and `Proxy` **cannot be polyfilled** — the interception it provides has no ES5 equivalent. That
+puts the real minimum at Chrome 49 / Firefox 18 / Safari 10 / Edge 12, and it means
+**Internet Explorer is not supported at any version** and never can be. If you need IE, this is not
+the library for you.
+
+Everything else the library uses (optional chaining, nullish coalescing, class fields) is comfortably
+below the stated floor. Notably there are **no regular expressions anywhere in the shipped bundle** —
+key-path splitting is a hand-written scanner precisely because the obvious regex needs lookbehind,
+which Safari only gained in 16.4. `tests/dist-smoke.test.ts` enforces that, because a build target
+alone does not: bundlers silently downgrade an unsupported regex literal to `new RegExp("…")`, which
+parses fine and then throws at runtime on the first key lookup.
 
 ## Why?
 
@@ -60,8 +81,6 @@ Feel free to import traditionally or dynamically as shown in the examples.
 ### Basic Example
 ```typescript :@import.meta.vitest
 //import {LayeredConfig} from 'config-layers';
-const {LayeredConfig} = await import('./dist/config-layers.js');
-
 type Schema = {
   apikey: string;
   useMocks: boolean;
@@ -133,7 +152,7 @@ cfg.getAll('enabled.features').map(item=>item.value); // get only the values, as
 To flatten the array of arrays, use flatMap
 
 ```typescript :@import.meta.vitest
-const {LayeredConfig} = await import('./dist/config-layers.js');
+//import {LayeredConfig} from 'config-layers';
 const layers = [
   { name: "1", config: { "features": ["f1", "f2","f4"] } },
   { name: "2", config: {"features": ["f3"] } } ,
@@ -164,11 +183,39 @@ expect(Array.from(new Set(
 
 #### Not Found Handler
 
-In typical scenario, when config value is not found, you expect an error to be thrown. This is the default behavior. However, in some cases you might want to provide a fallback value or handle missing keys gracefully. You can do this by providing a custom `notFoundHandler` function when creating the layered config.
+When a config value is not found, the default behavior is to log a warning and resolve the key to
+`undefined`:
+
+```text
+[config-layers] Key not found: apikey
+```
+
+A missing key is usually a typo or a layer that failed to load, and taking the application down for
+it is rarely what you want — but it should not pass silently either.
+
+Each key is warned about **once per config**, so a missing key read inside a loop does not flood the
+console. The record of what has already been warned belongs to the config rather than to the module,
+so two unrelated configs do not silence each other; a derived config inherits its parent's, and will
+not re-report a key the parent has already covered.
+
+You can replace this entirely with a custom `notFoundHandler`. Whatever it returns becomes the
+resolved value, so it can supply a default, route to your own logger, or throw if you would rather
+fail loudly:
+
+```typescript
+import {LayeredConfig} from 'config-layers';
+const strict = LayeredConfig.fromLayers<{apikey: string}>(
+  [{ name: "default", config: {} }],
+  {
+    notFoundHandler: key => { throw new Error(`Missing config key: ${String(key)}`); }
+  }
+);
+```
+
+Or to return a default value for any missing key:
 
 ```typescript :@import.meta.vitest
 //import {LayeredConfig} from 'config-layers';
-const {LayeredConfig} = await import('./dist/config-layers.js');
 const cfg = LayeredConfig.fromLayers<{apikey: string}>(
   [{ name: "default", config: {} }], //the config is empty in this example
   {
@@ -180,11 +227,35 @@ const cfg = LayeredConfig.fromLayers<{apikey: string}>(
 expect(cfg.anything).toBe('XD'); // the handler is called for any missing key
 ```
 
+The handler is reached only by a genuine miss. Language and library protocol lookups — `toJSON`,
+`toString`, `Symbol.toPrimitive`, `$$typeof` and friends — are answered without consulting it, so
+`console.log`, `JSON.stringify` and string coercion never trigger a spurious warning.
+
 #### Freeze
 
 By default the config object is frozen, so that you can't mutate it. This is to ensure immutability and prevent accidental changes to the configuration at runtime. To replace or add the config layers, you should use the `__derive` method, which creates a new config object based on the existing one, with the specified changes.
 
-If you need to modify the config object (not recommended), you can disable freezing by setting the `freeze` option to `false`.
+Precisely what this does and does not cover:
+
+- **Your layer objects are never touched.** The config takes its own deep copy of everything it
+  merges, so constructing one will not freeze arrays or objects you still hold a reference to.
+- **Resolved values are a snapshot.** Mutating a layer object after `fromLayers` has returned does
+  not change what the config resolves — through either `cfg.a.b` or `cfg['a.b']`. (`__inspect` and
+  `getAll` report per-layer provenance and do read the layer objects, so they will show such a
+  change.)
+- **`Date`, `RegExp`, `Map`, `Set`, typed arrays and class instances are copied too.** They are
+  reconstructed rather than copied field by field, so they keep their type, their prototype and
+  their methods — `cfg.created instanceof Date` and `cfg.creds.describe()` both work, and mutating
+  your original afterwards does not reach the config.
+- **Two things are not copied**, because they cannot be. **Functions** are shared by reference — a
+  closure cannot be cloned. And **private class fields** (`#x`) are unreachable from outside the
+  class, so a method that depends on one will throw on the copy; keep such objects out of your
+  config layers, or expose the state as a normal property.
+- **`Object.freeze` cannot reach internal slots.** A frozen `Map` still accepts `map.set(...)` and
+  a frozen `Date` still accepts `setTime(...)`. Because these are the config's own copies, doing so
+  can no longer affect your objects — but it does still mutate the config's value.
+
+If you need to modify the config object (not recommended), you can disable freezing by setting the `freeze` option to `false`. Note this only unfreezes the config's own copy; it does not start sharing your layer objects.
 
 ```typescript
 import {LayeredConfig} from 'config-layers';
@@ -223,8 +294,7 @@ Available strategies:
 You can set a global strategy or use a local override for specific fields.
 
 ```ts :@import.meta.vitest
-const {LayeredConfig} = await import('./dist/config-layers.js');
-
+//import {LayeredConfig} from 'config-layers';
 const layers = [
   { name: 'base', config: { tags: ['a', 'b'], flags: ['f1'] } },
   { name: 'user', config: { tags: ['c'], flags: ['f2'] } },
@@ -241,8 +311,7 @@ expect(cfg.flags).toEqual(['f1', 'f2']);
 To customize merging for a specific field only, use `arrayLocalMergeStrategyNameSuffix`. This allows you to define a sibling field in your config that specifies the strategy for that array.
 
 ```ts :@import.meta.vitest
-const {LayeredConfig} = await import('./dist/config-layers.js');
-
+//import {LayeredConfig} from 'config-layers';
 const layers = [
   { name: 'base', config: { list: ['a', 'b'] } },
   { 
@@ -268,8 +337,6 @@ The library is suitable for localization or similar use cases. It provides grace
 
 ```typescript :@import.meta.vitest
 //import {LayeredConfig} from 'config-layers';
-const {LayeredConfig} = await import('./dist/config-layers.js');
-
 // Specify the type for the labels
 type Labels = { button: string };
 
@@ -296,8 +363,6 @@ The inspection special word is prefixed with double underscore to avoid name col
 
 ```typescript :@import.meta.vitest
 //import {LayeredConfig} from 'config-layers';
-const {LayeredConfig} = await import('./dist/config-layers.js');
-
 const layers = [
     {name: "default", config: JSON.parse(`{
     "regularName": "1", 
@@ -315,8 +380,6 @@ expect(cfg('special..name')).toBe('2'); // double dot avoids nesting
 
 ```typescript :@import.meta.vitest
 //import {LayeredConfig} from 'config-layers';
-const {LayeredConfig} = await import('./dist/config-layers.js');
-
 const layers = [
     {name: "default", config: {useMocks: false, envName: "not set", path: "cwd"}},
     {name: "env", config: {envName: "development", apikey: "2137-dev-apikey", useMocks: true}},
@@ -344,8 +407,7 @@ You can create a new configuration by adding or overriding layers, or by changin
 #### Usage
 
 ```typescript :@import.meta.vitest
-const {LayeredConfig} = await import('./dist/config-layers.js');
-
+//import {LayeredConfig} from 'config-layers';
 const base = LayeredConfig.fromLayers([
   { name: 'default', config: { apiUrl: 'https://api.example.com', timeout: 5000 } },
   { name: 'env', config: { timeout: 3000 } },

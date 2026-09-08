@@ -1,6 +1,6 @@
 // Example: Validate a complex configuration object using Zod
 import {describe, it, expect} from 'vitest';
-import {LayeredConfig} from '../../dist/config-layers.js';
+import {LayeredConfig} from 'config-layers';
 
 let zod, z;
 let hasDependenciesInstalled = false;

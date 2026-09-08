@@ -1,128 +1,140 @@
-name: CI Release
+name: Release
 
 on:
   push:
     tags:
       - 'v*'
 
+# Tightened from workflow-wide write access: only the job that creates the GitHub Release needs
+# `contents: write`, and only the publish job needs `id-token: write` for npm provenance.
 permissions:
-  contents: write  # allow creating GitHub Releases
-  id-token: write  # for npm provenance (optional)
+  contents: read
 
 jobs:
-  build_test:
-    name: Build and Test
+  build:
+    name: Verify, build and pack
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Use Node.js 20
-        uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: 'pnpm'
+          node-version: 22
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-          run_install: false
+      - name: Derive the version from the tag
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'; then
+            echo "::error::Tag '${GITHUB_REF_NAME}' is not a semver version"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing $VERSION"
 
-      - name: Install dependencies
-        run: pnpm install
+      # `--ignore-scripts`, and no `cache: pnpm` or `--frozen-lockfile`.
+      #
+      # This repository deliberately commits neither `pnpm-lock.yaml` nor `pnpm-workspace.yaml`
+      # (see .gitignore) - the first two options require the lockfile, and the build approval that
+      # lets esbuild run its install script lives in the workspace file, so without it pnpm fails
+      # with ERR_PNPM_IGNORED_BUILDS. Skipping dependency install scripts avoids needing that
+      # approval at all, and is the safer default for CI regardless; esbuild's binary comes from
+      # its platform package, so the build still works. Our own `prepare` is skipped too, which is
+      # why every job below runs `pnpm build` explicitly.
+      - run: pnpm install --ignore-scripts
 
-      - name: Bump package version (no git tag/commit)
-        run: npm version patch --no-git-tag-version
+      # The published version now comes from the tag. It used to be `npm version patch`, which
+      # bumped from whatever was committed - so pushing v0.3.0 against a committed 0.2.1 published
+      # 0.2.2, and the tag and the artifact disagreed.
+      - name: Set the package version to the tag
+        run: npm version "${{ steps.version.outputs.version }}" --no-git-tag-version --allow-same-version
 
-      - name: Run tests
-        run: pnpm test
+      - name: Report a version the repository has not committed
+        run: |
+          # `if` is used deliberately: GitHub runs steps under `bash -e`, and a bare
+          # `git diff --quiet` returning 1 would fail the step rather than branch.
+          if git --no-pager diff --quiet -- package.json; then
+            echo "package.json already carried ${GITHUB_REF_NAME}."
+          else
+            echo "::warning::package.json was at a different version than tag ${GITHUB_REF_NAME}. The release uses the tag; consider bumping package.json in a commit before tagging."
+          fi
 
-      - name: Build package
-        run: pnpm build
+      - run: pnpm lint
+      - run: pnpm typecheck
 
-      - name: Pack tarball
-        run: npm pack
+      # Build after setting the version, so the bundle's license banner carries the released one,
+      # and before testing, so the dist smoke tests actually run instead of skipping.
+      - run: pnpm build
+      - run: pnpm test
 
-      - name: Save artifact (package tarball)
-        uses: actions/upload-artifact@v4
+      - run: npm pack
+
+      - uses: actions/upload-artifact@v4
         with:
           name: npm-package
-          path: |
-            *.tgz
-            dist/**
+          path: '*.tgz'
           if-no-files-found: error
 
   release:
     name: Create GitHub Release
-    needs: build_test
+    needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: npm-package
           path: ./artifact
 
-      - name: Create GitHub Release
-        id: create_release
-        uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: |
-            artifact/*.tgz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          files: artifact/*.tgz
 
-  publish_npm:
+  publish:
     name: Publish to npm
-    needs: release
+    needs: [build, release]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm provenance
     env:
-      # Set this secret in your repository settings: Settings > Secrets and variables > Actions > New repository secret
-      # Name: NPM_TOKEN, Value: an npm access token with publish rights for the package scope
       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      # Checked out so npm can associate the provenance attestation with the source commit.
+      - uses: actions/checkout@v4
 
-      - name: Use Node.js 20
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-          run_install: false
-
-      - name: Install dependencies
-        run: pnpm install --ignore-scripts
-
-      - name: Determine if package is private
-        id: private
-        shell: bash
-        run: |
-          PRIVATE=$(node -e "console.log(require('./package.json').private ? 'true' : 'false')")
-          echo "private=$PRIVATE" >> $GITHUB_OUTPUT
-
-      - name: Download artifact
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: npm-package
           path: ./artifact
 
-      - name: Publish to npm (tarball)
-        if: ${{ steps.private.outputs.private == 'false' && env.NPM_TOKEN != '' }}
+      # Kept from the original workflow: a fork that marks the package private should skip
+      # publishing rather than fail on it.
+      - name: Check whether the package is publishable
+        id: publishable
+        run: |
+          PRIVATE=$(node -e "console.log(require('./package.json').private ? 'true' : 'false')")
+          echo "private=$PRIVATE" >> "$GITHUB_OUTPUT"
+
+      # No install step: publishing a prebuilt tarball needs no dependencies, and skipping it
+      # avoids running `prepare`, which would rebuild dist/ at the committed version.
+      - name: Publish
+        if: ${{ env.NPM_TOKEN != '' && steps.publishable.outputs.private == 'false' }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          npm whoami || true
-          npm publish --provenance --access public artifact/*.tgz
+        run: npm publish --provenance --access public artifact/*.tgz
 
-      - name: Skip publish (private or missing token)
-        if: ${{ steps.private.outputs.private == 'true' || env.NPM_TOKEN == '' }}
-        run: |
-          echo "Skipping npm publish because package is private or NPM_TOKEN is not set."
+      - name: Skip publish
+        if: ${{ env.NPM_TOKEN == '' || steps.publishable.outputs.private == 'true' }}
+        run: echo "::notice::Skipped npm publish - the package is private or NPM_TOKEN is not set."

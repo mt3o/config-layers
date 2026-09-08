@@ -50,9 +50,8 @@ describe('Config layers', () => {
         expect(cfg.userContext.userId).toBe('user123');
         expect(cfg.userContext.roles).toEqual(['admin', 'user']);
         expect(cfg.envName).toBe('development');
-        expect(() => {
-            console.log(cfg.undef)
-        }).toThrow();
+        // a key no layer defines warns and resolves to undefined, rather than throwing
+        expect(cfg.undef).toBeUndefined();
     });
 });
 

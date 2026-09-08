@@ -1,0 +1,89 @@
+name: CI
+
+# Nothing ran on a pull request before this, so the only signal was a tag push - by which point a
+# regression is already being released.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Lint and typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # `--ignore-scripts`, and no `cache: pnpm` or `--frozen-lockfile`.
+      #
+      # This repository deliberately commits neither `pnpm-lock.yaml` nor `pnpm-workspace.yaml`
+      # (see .gitignore) - the first two options require the lockfile, and the build approval that
+      # lets esbuild run its install script lives in the workspace file, so without it pnpm fails
+      # with ERR_PNPM_IGNORED_BUILDS. Skipping dependency install scripts avoids needing that
+      # approval at all, and is the safer default for CI regardless; esbuild's binary comes from
+      # its platform package, so the build still works. Our own `prepare` is skipped too, which is
+      # why every job below runs `pnpm build` explicitly.
+      - run: pnpm install --ignore-scripts
+
+      - run: pnpm lint
+      - run: pnpm typecheck
+
+      # Coverage is computed once here rather than per Node version - the numbers are identical
+      # and instrumentation is not free. The build is needed so tests/dist-smoke.test.ts runs.
+      - run: pnpm build
+      - run: pnpm test:coverage
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          if-no-files-found: error
+
+  test:
+    name: Test on Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # `--ignore-scripts`, and no `cache: pnpm` or `--frozen-lockfile`.
+      #
+      # This repository deliberately commits neither `pnpm-lock.yaml` nor `pnpm-workspace.yaml`
+      # (see .gitignore) - the first two options require the lockfile, and the build approval that
+      # lets esbuild run its install script lives in the workspace file, so without it pnpm fails
+      # with ERR_PNPM_IGNORED_BUILDS. Skipping dependency install scripts avoids needing that
+      # approval at all, and is the safer default for CI regardless; esbuild's binary comes from
+      # its platform package, so the build still works. Our own `prepare` is skipped too, which is
+      # why every job below runs `pnpm build` explicitly.
+      - run: pnpm install --ignore-scripts
+
+      # Build before testing. The suite runs fine without dist/ - tests/dist-smoke.test.ts skips
+      # itself when it is absent - but those are the checks that guard the published artifact and
+      # the iPhone 6s syntax floor, so CI must not be the place they quietly skip.
+      - run: pnpm build
+
+      # `pnpm test`, not `test:coverage`: the performance guards are excluded from a coverage run
+      # because instrumentation distorts the very timings they assert on, so this is the run that
+      # actually exercises them - on every supported Node version.
+      - run: pnpm test
