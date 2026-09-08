@@ -36,11 +36,16 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Releasing $VERSION"
 
-      # No `cache: pnpm` and no `--frozen-lockfile`: this repository deliberately does not commit a
-      # lockfile (see the note at the top of .gitignore - it has no runtime dependencies, so a
-      # lockfile would only pin the dev toolchain). Both of those options require one, and
-      # setup-node fails outright with "Dependencies lock file is not found" when it is missing.
-      - run: pnpm install
+      # `--ignore-scripts`, and no `cache: pnpm` or `--frozen-lockfile`.
+      #
+      # This repository deliberately commits neither `pnpm-lock.yaml` nor `pnpm-workspace.yaml`
+      # (see .gitignore) - the first two options require the lockfile, and the build approval that
+      # lets esbuild run its install script lives in the workspace file, so without it pnpm fails
+      # with ERR_PNPM_IGNORED_BUILDS. Skipping dependency install scripts avoids needing that
+      # approval at all, and is the safer default for CI regardless; esbuild's binary comes from
+      # its platform package, so the build still works. Our own `prepare` is skipped too, which is
+      # why every job below runs `pnpm build` explicitly.
+      - run: pnpm install --ignore-scripts
 
       # The published version now comes from the tag. It used to be `npm version patch`, which
       # bumped from whatever was committed - so pushing v0.3.0 against a committed 0.2.1 published
