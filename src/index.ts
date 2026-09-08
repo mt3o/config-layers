@@ -16,6 +16,9 @@ function isString(key: string | symbol | number) {
 
 const DOT = 46; // '.'
 
+/** Hoisted: resolving `Object.prototype.hasOwnProperty` costs two property reads per lookup. */
+const hasOwn = Object.prototype.hasOwnProperty;
+
 /**
  * Splits a key that contains an escape (a run of two or more dots), character by character.
  * Only reached on a cache miss for keys that actually contain `..`.
@@ -104,6 +107,8 @@ function deepMergeArrayField<T extends object, U extends object>(target: T, sour
         ? (source as any)?.[localOverrideStrategyFieldName] ?? (target as any)?.[localOverrideStrategyFieldName]
         : strategy;
 
+    // These results may still share element references with the caller's layers; finalizeOwned
+    // copies them once at the end of construction.
     switch(localOverrideStrategy){
         case 'concat':
             (target as any)[key] = [...(target as any)[key], ...value];
@@ -129,14 +134,88 @@ const UNSAFE_KEYS = new Set<string>(['__proto__', 'constructor', 'prototype']);
  * True only for values that can be safely merged key by key: plain object literals, and
  * null-prototype objects such as those from `Object.create(null)`.
  *
- * Everything else - `Date`, `RegExp`, `Map`, `Set`, `Buffer`, class instances - carries behaviour
+ * Everything else - `Date`, `RegExp`, `Map`, `Set`, `Buffer`, class instances - carries behavior
  * or internal slots that a key-by-key copy would silently destroy (a `Date` copied this way
- * becomes `{}`), so those values are carried across by reference instead.
+ * becomes `{}`), so `cloneOwned` reconstructs those rather than merging into them.
  */
 function isPlainObject(value: unknown): value is Record<string, any> {
     if (value === null || typeof value !== 'object') return false;
     const proto = Object.getPrototypeOf(value);
     return proto === null || proto === Object.prototype;
+}
+
+/**
+ * Deep-copies a value so the config owns it outright.
+ *
+ * Everything the config exposes has to be its own, or freezing it would be a side effect on data
+ * the caller still holds - and a value shared with a layer would keep changing under the config
+ * after construction. Plain objects are already rebuilt key by key by `deepMerge`; this covers
+ * everything else.
+ *
+ * Built-ins keep their identity by being reconstructed rather than copied property by property: a
+ * `Date` copied key-by-key would come out as `{}`, since its value lives in an internal slot.
+ * Other objects are rebuilt on their original prototype, so methods and `instanceof` survive.
+ *
+ * Two things it cannot reproduce, both inherent rather than incidental:
+ *  - **private class fields** (`#x`) are unreachable from outside the class, so a method that
+ *    depends on one will throw on the copy;
+ *  - **functions** are returned by reference, since a closure cannot be cloned.
+ */
+function cloneOwned(value: any): any {
+    // Scalars and functions are the overwhelming majority of merged values; checking them first
+    // keeps this off the hot path. Functions are shared deliberately - see above.
+    if (value === null || typeof value !== 'object') return value;
+
+    if (Array.isArray(value)) {
+        // `slice` is a native bulk copy; only elements that are themselves containers need more.
+        const copy = value.slice();
+        for (let i = 0; i < copy.length; i++) {
+            const element = copy[i];
+            if (element !== null && typeof element === 'object') copy[i] = cloneOwned(element);
+        }
+        return copy;
+    }
+
+    if (isPlainObject(value)) {
+        const copy: Record<string, any> = {};
+        for (const key in value) {
+            if (hasOwn.call(value, key) && !UNSAFE_KEYS.has(key)) {
+                copy[key] = cloneOwned(value[key]);
+            }
+        }
+        return copy;
+    }
+
+    // Built-ins whose state lives in internal slots, so they must be reconstructed.
+    if (value instanceof Date) return new Date(value.getTime());
+    if (value instanceof RegExp) return new RegExp(value.source, value.flags);
+    if (value instanceof Map) {
+        const copy = new Map();
+        value.forEach((entry, entryKey) => copy.set(cloneOwned(entryKey), cloneOwned(entry)));
+        return copy;
+    }
+    if (value instanceof Set) {
+        const copy = new Set();
+        value.forEach((entry) => copy.add(cloneOwned(entry)));
+        return copy;
+    }
+    if (ArrayBuffer.isView(value)) {
+        // Typed arrays and Buffer. `from` copies for both; `Buffer.prototype.slice` would not, it
+        // returns a view over the same memory.
+        const ctor = (value as any).constructor;
+        if (typeof ctor?.from === 'function') return ctor.from(value as any);
+        return value;
+    }
+
+    // Anything else: rebuild on the same prototype so methods and `instanceof` survive. Descriptors
+    // rather than plain assignment, so getters, setters, non-enumerables and symbol keys are kept
+    // as they were instead of being flattened into data properties.
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    for (const descriptorKey of Reflect.ownKeys(descriptors)) {
+        const descriptor = (descriptors as any)[descriptorKey];
+        if ('value' in descriptor) descriptor.value = cloneOwned(descriptor.value);
+    }
+    return Object.create(Object.getPrototypeOf(value), descriptors);
 }
 
 function deepMerge<T extends object, U extends object>(target: T, source: U, options?: Partial<ConfigOptions>): T & U {
@@ -160,6 +239,9 @@ function deepMerge<T extends object, U extends object>(target: T, source: U, opt
             } else if (Array.isArray(value) && Array.isArray((target as any)[key])) {
                 deepMergeArrayField(target, source, key, value, options);
             } else {
+                // Arrays are stored by reference here and copied once by finalizeOwned, after
+                // every layer has been folded in - cloning per layer would clone arrays that a
+                // later layer immediately discards.
                 (target as any)[key] = value;
             }
         }
@@ -168,23 +250,72 @@ function deepMerge<T extends object, U extends object>(target: T, source: U, opt
 }
 
 /**
- * Freezes the structure the config owns - the merged plain-object spine and its arrays.
+ * Single pass over the merged result that makes it genuinely the config's own, and optionally
+ * freezes it.
  *
- * Non-plain objects (`Date`, `Map`, `Set`, class instances) are deliberately left alone: they are
- * references to data the caller still owns, so freezing them would be a side effect on someone
- * else's value, and for most of them it buys nothing anyway (`Object.freeze` on a `Map` does not
- * prevent `map.set(...)`).
+ * The merge stores arrays by reference, because a key present in several layers would otherwise be
+ * copied once per layer only for the last one to win. This pass runs after the fold, so it copies
+ * exactly the arrays that survived - and it is fused with freezing so the tree is walked once
+ * rather than twice.
+ *
+ * Plain objects in the spine were already rebuilt key by key by `deepMerge`, so they only need
+ * recursing into. Non-plain values (`Date`, `Map`, class instances) are left by reference and
+ * unfrozen: they belong to the caller and cannot be cloned generically.
+ */
+function finalizeOwned<T extends object>(node: T, freeze: boolean): T {
+    for (const key in node) {
+        if (!hasOwn.call(node, key)) continue;
+
+        const value = (node as any)[key];
+        if (value === null || typeof value !== 'object') continue;
+
+        if (isPlainObject(value)) {
+            // Already the config's own: deepMerge rebuilt it key by key.
+            finalizeOwned(value, freeze);
+        } else {
+            // Arrays, Dates, Maps, class instances - all still the caller's, so copy before
+            // freezing. Cloning here rather than during the merge means a key present in several
+            // layers is copied once, not once per layer.
+            const owned = cloneOwned(value);
+            (node as any)[key] = owned;
+            if (freeze) deepFreeze(owned);
+        }
+    }
+    if (freeze) Object.freeze(node);
+    return node;
+}
+
+/**
+ * Freezes the merged result. Everything reachable from it is the config's own copy by this point
+ * (see `cloneOwned`), so there is nothing here that belongs to the caller and nothing is skipped.
+ *
+ * `Object.freeze` does not reach state held in internal slots, so a frozen `Map` still accepts
+ * `map.set(...)` and a frozen `Date` still accepts `setTime(...)`. Their *contents* are frozen
+ * where they can be, and because they are copies, mutating one can no longer affect the caller.
  */
 function deepFreeze<T>(obj: T): T {
-    if (obj && typeof obj === "object" && !Object.isFrozen(obj)) {
-        Object.getOwnPropertyNames(obj).forEach((prop) => {
-            const value = (obj as any)[prop];
-            if (value && typeof value === "object" && (isPlainObject(value) || Array.isArray(value))) {
-                deepFreeze(value);
+    if (!obj || typeof obj !== "object" || Object.isFrozen(obj)) return obj;
+
+    if (Array.isArray(obj)) {
+        // Walk by index. `Object.getOwnPropertyNames` on an array materializes every index as a
+        // string plus 'length', which dominates the cost on array-heavy configs.
+        for (let i = 0; i < obj.length; i++) {
+            const value = obj[i];
+            if (value && typeof value === "object") deepFreeze(value);
+        }
+    } else {
+        for (const key in obj) {
+            if (hasOwn.call(obj, key)) {
+                const value = (obj as any)[key];
+                if (value && typeof value === "object") deepFreeze(value);
             }
-        });
-        Object.freeze(obj);
+        }
+        // Map and Set entries live in internal slots, so `for...in` never sees them.
+        if (obj instanceof Map) obj.forEach((value) => deepFreeze(value));
+        else if (obj instanceof Set) obj.forEach((value) => deepFreeze(value));
     }
+
+    Object.freeze(obj);
     return obj;
 }
 
@@ -237,6 +368,17 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
 
     private flattened: DeepOptionalAndUndefined<Schema>;
 
+    /**
+     * The top-level keys the handle reports. Computed once during construction - the layer set is
+     * fixed for an instance's lifetime, and the instance is frozen straight afterwards, so this
+     * cannot be filled in lazily.
+     *
+     * Read off the merged result rather than rescanned from the layers: `flattened` already has
+     * them folded together under the same `acceptNull` / `acceptUndefined` rules, so the keys the
+     * handle reports and the values it resolves can never disagree.
+     */
+    private ownKeys: Array<string | symbol>;
+
     private constructor(
         layers: Map<LayerName, DeepOptionalAndUndefined<Schema>>,
         options: Partial<ConfigOptions> | undefined = undefined,
@@ -258,6 +400,12 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
         this.flattened = Array.from(this.layers.values()).reduce((acc, layer) => {
             return deepMerge(acc, layer, this.options);
         }, {} as DeepOptionalAndUndefined<Schema>);
+
+        // The fold leaves arrays shared with the caller's layers. Take ownership of them - and
+        // freeze the result if asked - in one pass over what actually survived the merge.
+        finalizeOwned(this.flattened as object, this.options.freeze);
+
+        this.ownKeys = Object.keys(this.flattened as object);
     }
 
     private options: ConfigOptions;
@@ -285,8 +433,14 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
             options
         );
 
-        if(instance.options.freeze)
-            deepFreeze(instance);
+        if (instance.options.freeze) {
+            // Deliberately not `deepFreeze(instance)`: that would walk into `layers`, whose values
+            // are the caller's own objects. `flattened` was already frozen by finalizeOwned, so
+            // only the instance's remaining fields are left.
+            Object.freeze(instance.options);
+            Object.freeze(instance.ownKeys);
+            Object.freeze(instance);
+        }
 
 
         // noinspection JSUnusedGlobalSymbols
@@ -297,16 +451,8 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
                 return instance.__withFallback(key, fallback);
             },
             has(_target, key) {
-                const treeKeyParts = isString(key) ? splitPath(key) : [key];
-                if (treeKeyParts.length == 1) {
-                    const val = instance.__getFlat(treeKeyParts[0], undefined, true);
-                    return val !== undefined && (val !== null || !!instance.options.acceptNull);
-                }
-                if (treeKeyParts.length > 1) {
-                    const val = instance.__getComplex(key, undefined, true);
-                    return val !== undefined && (val !== null || !!instance.options.acceptNull);
-                }
-                return false;
+                const val = instance.__resolve(key, isString(key) ? splitPath(key) : [key], undefined, true);
+                return val !== undefined && (val !== null || !!instance.options.acceptNull);
             },
             getOwnPropertyDescriptor(_target, _prop) {
                 return {
@@ -324,20 +470,9 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
                 return false;
             },
             ownKeys(): Array<string | symbol> {
-                const layers = Array.from(instance.layers.values());
-                const keys = new Set<string | symbol>();
-                for (const layer of layers) {
-                    for (const key in layer) {
-                        if (Object.prototype.hasOwnProperty.call(layer, key)) {
-                            const value = (layer as any)[key];
-                            if (value === null && !instance.options.acceptNull) continue;
-                            if (value === undefined && !instance.options.acceptUndefined) continue;
-                            keys.add(key);
-                        }
-                    }
-                }
-                const keysArray = Array.from(keys);
-                return {...keysArray, length: keysArray.length};
+                // The layer set is fixed for the lifetime of an instance, so this is computed once
+                // rather than rescanning every layer on each Object.keys / spread / for...in.
+                return instance.__ownKeys();
             },
             get(_target, key: string | symbol, _receiver) {
 
@@ -351,18 +486,40 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
                     return instance.__getAll.bind(instance);
                 }
 
-                if (key === 'then' && (instance.flattened as any)['then'] === undefined) {
+                // Protocol lookups. The language itself, `JSON.stringify`, `console.log` and a
+                // fair number of libraries probe these on any object handed to them. None of them
+                // is a config key, so a miss has to answer quietly - routing them to
+                // notFoundHandler is why `console.log(config)` and `String(config)` used to throw.
+                if (typeof key === 'symbol') {
+                    if (key === Symbol.toStringTag) return 'LayeredConfig';
+                    // Symbol.toPrimitive, Symbol.iterator, Symbol.hasInstance and friends: a
+                    // symbol can never name a config key here, since the merge walks string keys.
+                    //
+                    // Note there is deliberately no `nodejs.util.inspect.custom` branch: Node
+                    // detects a proxy and inspects its target directly without running any trap,
+                    // so `console.log(config)` shows the underlying function no matter what is
+                    // returned here. Use `config.toJSON()` to log the resolved config.
                     return undefined;
                 }
 
-                const treeKeyParts = isString(key) ? splitPath(key) : [key];
+                if (!Object.prototype.hasOwnProperty.call(instance.flattened, key)) {
+                    switch (key) {
+                        // `await config` must not treat the handle as a thenable
+                        case 'then':
+                            return undefined;
+                        case 'toJSON':
+                            return () => instance.flattened;
+                        case 'toString':
+                        case 'valueOf':
+                            return () => '[object LayeredConfig]';
+                        case 'constructor':
+                        case '$$typeof':
+                        case 'nodeType':
+                            return undefined;
+                    }
+                }
 
-                if (treeKeyParts.length == 1) {
-                    return instance.__getFlat(treeKeyParts[0]);
-                }
-                if (treeKeyParts.length > 1) {
-                    return instance.__getComplex(key);
-                }
+                return instance.__resolve(key, isString(key) ? splitPath(key) : [key]);
             }
         }) as unknown as ConfigHandle<Schema>;
     }
@@ -381,13 +538,7 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
     }
 
     private __withFallback<K extends keyof Schema, T>(key: K | number | symbol, fallback: T): T | Partial<Schema> {
-        const treeKeyParts = isString(key) ? splitPath(key) : [key];
-        if (treeKeyParts.length == 1) {
-            return this.__getFlat(treeKeyParts[0], fallback);
-        }
-
-        return this.__getComplex(key, fallback);
-
+        return this.__resolve(key, isString(key) ? splitPath(key) : [key], fallback);
     }
 
 
@@ -438,6 +589,10 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
     }
 
 
+    private __ownKeys(): Array<string | symbol> {
+        return this.ownKeys;
+    }
+
     private __getAll<K extends keyof Schema>(key: K|number|symbol){
         //iterate over all layers in precedence order and collect values for the key
         const treeKeyParts = isString(key) ? splitPath(key) : [key];
@@ -470,72 +625,62 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
         return results;
     }
 
-    private __getComplex<K extends keyof Schema>(key: K | number | symbol, fallback?: unknown, silent: boolean = false) {
-
-        const treeKeyParts = isString(key) ? splitPath(key) : [key];
-
-        const layers = Array.from(this.layers.values()).reverse();
-
-        let resultingObject: any = {};
-
-        let current: any = undefined;
-        let isFinalValueFound = false;
-        //execute for each layer
-        for (const layer of layers) {
-
-            if (!layer) continue;
-
-            let currentLayer: any = layer;
-            let found = true;
-            //For each part of the key, try to nest into the object
-            for (const part of treeKeyParts) {
-                //execute nesting into the subtree
-                if (currentLayer && part in currentLayer) {
-                    currentLayer = currentLayer[part];
-                } else {
-                    found = false;
-                    break;
-                }
+    /**
+     * Resolves a key path against the merged config.
+     *
+     * Both flat and dotted access come through here. They used to be separate: flat access read
+     * `flattened`, while dotted access re-walked the raw layers with its own merge. The two
+     * disagreed - the layer walk iterated highest-priority-first and shallow-spread each match, so
+     * lower layers overwrote higher ones and nested objects never merged past one level, and it
+     * could not see array merge strategies at all. One resolver, one answer.
+     *
+     * Steps are matched as own properties. A config path addresses data the layers put there, so
+     * it must not be able to walk onto `Object.prototype` and pull out `constructor` or `toString`.
+     */
+    private __resolve<K extends keyof Schema>(
+        key: K | number | symbol,
+        parts: readonly (string | symbol | number)[],
+        fallback?: unknown,
+        silent: boolean = false,
+    ) {
+        // Single-segment keys are by far the most common read, so they skip the loop entirely.
+        if (parts.length === 1) {
+            const only = parts[0] as any;
+            if (!hasOwn.call(this.flattened, only)) return this.__miss(key, fallback, silent);
+            const value = (this.flattened as any)[only];
+            if (value === undefined && !this.options.acceptUndefined) {
+                return this.__miss(key, fallback, silent);
             }
+            return value;
+        }
 
-            if (found) {
-                if (currentLayer === null && !this.options.acceptNull) continue;
-                if (currentLayer === undefined && !this.options.acceptUndefined) continue;
+        // `flattened` is always an object, so the container check is only needed before a *next*
+        // step.
+        let current: any = this.flattened;
 
-                //anything we cannot merge key-by-key is the value itself: scalars, but also arrays
-                //and non-plain objects (Date, Map, class instances), which spreading would destroy
-                if (!isPlainObject(currentLayer)) {
-                    current = currentLayer;
-                    isFinalValueFound = true;
-                    break;
-                } else {
-                    //we have an object, merge it into the resulting object
-                    current = undefined;
-                    resultingObject = {
-                        ...resultingObject,
-                        ...currentLayer
-                    }
-                }
+        for (let i = 0; i < parts.length; i++) {
+            if (!hasOwn.call(current, parts[i] as any)) {
+                return this.__miss(key, fallback, silent);
+            }
+            current = current[parts[i] as any];
+
+            if (i + 1 < parts.length && (current === null || typeof current !== 'object')) {
+                return this.__miss(key, fallback, silent);
             }
         }
-        if (isFinalValueFound) {
-            return current;
+
+        // `flattened` only ever holds an explicit `undefined` when acceptUndefined is on, since
+        // deepMerge skips them otherwise - so reaching one here means it was asked for.
+        if (current === undefined && !this.options.acceptUndefined) {
+            return this.__miss(key, fallback, silent);
         }
-        if (Object.keys(resultingObject).length > 0) {
-            return resultingObject;
-        }
-        if (fallback !== undefined)
-            return fallback;
-        if (silent) return undefined;
-        return this.options.notFoundHandler(key);
+
+        return current;
     }
 
-    private __getFlat<K extends keyof Schema>(key: K | number | symbol, fallback?: unknown, silent: boolean = false) {
-        const value = this.flattened[key as K];
-        if (value !== undefined || (key in this.flattened && this.options.acceptUndefined))
-            return value;
-        if (fallback !== undefined)
-            return fallback;
+    /** What a resolution that found nothing returns: the fallback, silence, or the handler. */
+    private __miss<K extends keyof Schema>(key: K | number | symbol, fallback: unknown, silent: boolean) {
+        if (fallback !== undefined) return fallback;
         if (silent) return undefined;
         return this.options.notFoundHandler(key);
     }

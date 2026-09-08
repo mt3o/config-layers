@@ -41,7 +41,28 @@ All the merging is handled for you in a type-safe way. You define the config str
 - Fallback values and custom not-found handlers
 - Configuration inspection (see from which layer the valueF comes from)
 - Immutable config proxy, frozen config object
+- Runs on iOS 15 / Safari 15 (iPhone 6s); no regexes in the shipped bundle
 - TypeScript support
+
+## Browser support
+
+The library is built for **iOS 15 / Safari 15** — an iPhone 6s is the oldest device it is verified
+against — alongside Chrome 87, Firefox 78 and Edge 88. The build target is pinned explicitly in
+`vite.config.ts` rather than inherited from the bundler's shifting default.
+
+There is one hard floor that cannot be lowered: the config handle is a
+[`Proxy`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Proxy),
+and `Proxy` **cannot be polyfilled** — the interception it provides has no ES5 equivalent. That
+puts the real minimum at Chrome 49 / Firefox 18 / Safari 10 / Edge 12, and it means
+**Internet Explorer is not supported at any version** and never can be. If you need IE, this is not
+the library for you.
+
+Everything else the library uses (optional chaining, nullish coalescing, class fields) is comfortably
+below the stated floor. Notably there are **no regular expressions anywhere in the shipped bundle** —
+key-path splitting is a hand-written scanner precisely because the obvious regex needs lookbehind,
+which Safari only gained in 16.4. `tests/dist-smoke.test.ts` enforces that, because a build target
+alone does not: bundlers silently downgrade an unsupported regex literal to `new RegExp("…")`, which
+parses fine and then throws at runtime on the first key lookup.
 
 ## Why?
 
@@ -181,7 +202,27 @@ expect(cfg.anything).toBe('XD'); // the handler is called for any missing key
 
 By default the config object is frozen, so that you can't mutate it. This is to ensure immutability and prevent accidental changes to the configuration at runtime. To replace or add the config layers, you should use the `__derive` method, which creates a new config object based on the existing one, with the specified changes.
 
-If you need to modify the config object (not recommended), you can disable freezing by setting the `freeze` option to `false`.
+Precisely what this does and does not cover:
+
+- **Your layer objects are never touched.** The config takes its own deep copy of everything it
+  merges, so constructing one will not freeze arrays or objects you still hold a reference to.
+- **Resolved values are a snapshot.** Mutating a layer object after `fromLayers` has returned does
+  not change what the config resolves — through either `cfg.a.b` or `cfg['a.b']`. (`__inspect` and
+  `getAll` report per-layer provenance and do read the layer objects, so they will show such a
+  change.)
+- **`Date`, `RegExp`, `Map`, `Set`, typed arrays and class instances are copied too.** They are
+  reconstructed rather than copied field by field, so they keep their type, their prototype and
+  their methods — `cfg.created instanceof Date` and `cfg.creds.describe()` both work, and mutating
+  your original afterwards does not reach the config.
+- **Two things are not copied**, because they cannot be. **Functions** are shared by reference — a
+  closure cannot be cloned. And **private class fields** (`#x`) are unreachable from outside the
+  class, so a method that depends on one will throw on the copy; keep such objects out of your
+  config layers, or expose the state as a normal property.
+- **`Object.freeze` cannot reach internal slots.** A frozen `Map` still accepts `map.set(...)` and
+  a frozen `Date` still accepts `setTime(...)`. Because these are the config's own copies, doing so
+  can no longer affect your objects — but it does still mutate the config's value.
+
+If you need to modify the config object (not recommended), you can disable freezing by setting the `freeze` option to `false`. Note this only unfreezes the config's own copy; it does not start sharing your layer objects.
 
 ```typescript
 import {LayeredConfig} from 'config-layers';

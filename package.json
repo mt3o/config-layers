@@ -5,6 +5,14 @@
   "type": "module",
   "main": "dist/config-layers.js",
   "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "browserslist": [
+    "safari >= 15",
+    "ios_saf >= 15",
+    "chrome >= 87",
+    "firefox >= 78",
+    "edge >= 88"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -26,7 +34,7 @@
   "scripts": {
     "prepare": "npm run build",
     "dev": "vite",
-    "build": "tsc --noEmit && vite build && tsc --declaration --emitDeclarationOnly --outDir dist --declarationMap true",
+    "build": "tsc --noEmit && vite build && tsc --declaration --emitDeclarationOnly --outDir dist",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",

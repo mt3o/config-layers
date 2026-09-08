@@ -60,6 +60,49 @@ describe.skipIf(!built)('packaged build', () => {
         }
     });
 
+    describe('sideEffects: false is honest', () => {
+        // Bundlers trust this flag blindly - if the module ever gains a top-level side effect, they
+        // will still drop it and the consumer breaks silently. These pin the promise instead.
+
+        it('is declared in package.json', () => {
+            const pkg = JSON.parse(readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf-8'));
+            expect(pkg.sideEffects).toBe(false);
+        });
+
+        it('importing the bundle mutates neither globalThis nor Object.prototype', async () => {
+            const globalsBefore = Reflect.ownKeys(globalThis).map(String).sort();
+            const protoBefore = Reflect.ownKeys(Object.prototype).map(String).sort();
+
+            await import(`${dist('config-layers.js')}?sideeffect-probe`);
+
+            expect(Reflect.ownKeys(globalThis).map(String).sort()).toEqual(globalsBefore);
+            expect(Reflect.ownKeys(Object.prototype).map(String).sort()).toEqual(protoBefore);
+        });
+
+        it('has no module-scope statement that runs work on import', () => {
+            // Every top-level form in the bundle must be a declaration or an export. A bare call,
+            // an assignment to something external, or a loop at module scope would break the
+            // flag's promise.
+            //
+            // The one tolerated exception is the in-source test block, `if (import.meta.vitest)`.
+            // It is inert in any consumer build - the flag is undefined outside vitest, so the body
+            // never runs and nothing is observable - but it is still dead weight in the shipped
+            // bundle. Stripping it at build time is TODO §1.1; once that lands this allowance can
+            // go, and the check gets stricter for free.
+            const inSourceTestGuard = /^if \(import\.meta\.[a-z]+\) \{$/;
+
+            const src = readFileSync(dist('config-layers.js'), 'utf-8');
+            const offenders = src
+                .split('\n')
+                // top-level only: unindented, non-blank, not a comment. Indentation has to be
+                // judged before trimming, or every nested line looks top-level.
+                .filter((line) => /^[^\s/*]/.test(line))
+                .filter((line) => !/^(const|let|var|function|class|export|import|\}|\)|\];?|`)/.test(line))
+                .filter((line) => !inSourceTestGuard.test(line));
+            expect(offenders).toEqual([]);
+        });
+    });
+
     describe('syntax floor (iPhone 6s / iOS 15)', () => {
         // Regex lookbehind only reached Safari 16.4. Below that, esbuild silently rewrites an
         // unsupported literal to `new RegExp("...")` - no warning, no build error - and it throws
@@ -71,10 +114,13 @@ describe.skipIf(!built)('packaged build', () => {
             expect(readFileSync(dist(file), 'utf-8')).not.toMatch(/\(\?<[!=]/);
         });
 
-        it.each(bundles)('%s contains no runtime-constructed RegExp', (file) => {
-            // esbuild emits `new RegExp(...)` exactly when it had to downgrade a literal it
-            // considered unsupported at the configured target.
-            expect(readFileSync(dist(file), 'utf-8')).not.toMatch(/new RegExp\(/);
+        it.each(bundles)('%s has no regex literal downgraded to a RegExp constructor', (file) => {
+            // When esbuild has to downgrade a regex literal it cannot express at the configured
+            // target, it rewrites it as `new RegExp("<source>")` - a *string literal* argument.
+            // That parses fine and then throws at runtime, which is exactly the failure mode this
+            // guards. Constructing a RegExp from variables is ordinary code and stays allowed
+            // (cloneOwned does it to copy a RegExp out of a config layer).
+            expect(readFileSync(dist(file), 'utf-8')).not.toMatch(/new RegExp\(\s*["'`]/);
         });
     });
 });
