@@ -97,7 +97,7 @@ jobs:
           files: artifact/*.tgz
 
   publish:
-    name: Publish to npm
+    name: Stage for npm publish
     needs: [build, release]
     runs-on: ubuntu-latest
     permissions:
@@ -114,6 +114,13 @@ jobs:
           node-version: 22
           registry-url: 'https://registry.npmjs.org'
 
+      # `npm stage` needs npm >= 11.15.0 (and Node >= 22.14.0, which node-version 22 satisfies).
+      # Node 22 ships a 10.x npm, so it has to be upgraded explicitly.
+      - name: Install an npm that supports staging
+        run: |
+          npm install -g npm@^11.15.0
+          npm --version
+
       - uses: actions/download-artifact@v4
         with:
           name: npm-package
@@ -127,16 +134,40 @@ jobs:
           PRIVATE=$(node -e "console.log(require('./package.json').private ? 'true' : 'false')")
           echo "private=$PRIVATE" >> "$GITHUB_OUTPUT"
 
-      # No install step: publishing a prebuilt tarball needs no dependencies, and skipping it
-      # avoids running `prepare`, which would rebuild dist/ at the committed version.
-      - name: Publish
+      # Staged publishing rather than `npm publish`, because a plain publish cannot complete from
+      # CI: npm demands proof-of-presence, and an unattended runner has no authenticator, so it
+      # fails with EOTP however the token is scoped. `npm stage publish` defers that 2FA check -
+      # the tarball is uploaded but withheld from the registry until a maintainer approves it,
+      # which doubles as a review gate.
+      #
+      # No install step: staging a prebuilt tarball needs no dependencies, and skipping it avoids
+      # running `prepare`, which would rebuild dist/ at the committed version.
+      #
+      # The `./` is load-bearing. Without it npm reads `artifact/config-layers-0.4.0.tgz` as a
+      # GitHub `owner/repo` shorthand and tries to git-clone it, failing with exit 128.
+      - name: Stage the release on npm
         if: ${{ env.NPM_TOKEN != '' && steps.publishable.outputs.private == 'false' }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        # The `./` is load-bearing. Without it npm reads `artifact/config-layers-0.4.0.tgz` as a
-        # GitHub `owner/repo` shorthand and tries to git-clone it, failing with exit 128.
-        run: npm publish --provenance --access public ./artifact/*.tgz
+        run: npm stage publish --provenance --access public ./artifact/*.tgz
 
-      - name: Skip publish
+      - name: Explain how to approve
+        if: ${{ env.NPM_TOKEN != '' && steps.publishable.outputs.private == 'false' }}
+        run: |
+          {
+            echo "### Staged, awaiting approval"
+            echo
+            echo "\`${GITHUB_REF_NAME}\` is uploaded to npm but **not yet installable**."
+            echo "Approval requires 2FA, so it cannot be automated - a maintainer has to run:"
+            echo
+            echo '```'
+            echo "npm stage list config-layers"
+            echo "npm stage approve <stage-id>"
+            echo '```'
+            echo
+            echo "or approve it from the package page on npmjs.com."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Skip staging
         if: ${{ env.NPM_TOKEN == '' || steps.publishable.outputs.private == 'true' }}
-        run: echo "::notice::Skipped npm publish - the package is private or NPM_TOKEN is not set."
+        run: echo "::notice::Skipped npm staging - the package is private or NPM_TOKEN is not set."
