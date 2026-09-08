@@ -26,7 +26,7 @@ Here's a simple example of loading configuration from multiple YAML files:
 
 ```typescript yaml-sample:@import.meta.vitest
 // Import the required libraries
-const {LayeredConfig} = await import('../../dist/config-layers.js');
+//import {LayeredConfig} from 'config-layers';
 const fs = await import('fs');
 const url = await import('url');
 const path = await import('path');

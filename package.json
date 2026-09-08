@@ -4,7 +4,7 @@
   "version": "0.2.1",
   "type": "module",
   "main": "dist/config-layers.js",
-  "types": "./dist/types.d.ts",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -24,6 +24,7 @@
     "url": "https://github.com/mt3o"
   },
   "scripts": {
+    "prepare": "npm run build",
     "dev": "vite",
     "build": "tsc --noEmit && vite build && tsc --declaration --emitDeclarationOnly --outDir dist --declarationMap true",
     "preview": "vite preview",

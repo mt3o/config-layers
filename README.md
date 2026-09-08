@@ -60,8 +60,6 @@ Feel free to import traditionally or dynamically as shown in the examples.
 ### Basic Example
 ```typescript :@import.meta.vitest
 //import {LayeredConfig} from 'config-layers';
-const {LayeredConfig} = await import('./dist/config-layers.js');
-
 type Schema = {
   apikey: string;
   useMocks: boolean;
@@ -133,7 +131,7 @@ cfg.getAll('enabled.features').map(item=>item.value); // get only the values, as
 To flatten the array of arrays, use flatMap
 
 ```typescript :@import.meta.vitest
-const {LayeredConfig} = await import('./dist/config-layers.js');
+//import {LayeredConfig} from 'config-layers';
 const layers = [
   { name: "1", config: { "features": ["f1", "f2","f4"] } },
   { name: "2", config: {"features": ["f3"] } } ,
@@ -168,7 +166,6 @@ In typical scenario, when config value is not found, you expect an error to be t
 
 ```typescript :@import.meta.vitest
 //import {LayeredConfig} from 'config-layers';
-const {LayeredConfig} = await import('./dist/config-layers.js');
 const cfg = LayeredConfig.fromLayers<{apikey: string}>(
   [{ name: "default", config: {} }], //the config is empty in this example
   {
@@ -223,8 +220,7 @@ Available strategies:
 You can set a global strategy or use a local override for specific fields.
 
 ```ts :@import.meta.vitest
-const {LayeredConfig} = await import('./dist/config-layers.js');
-
+//import {LayeredConfig} from 'config-layers';
 const layers = [
   { name: 'base', config: { tags: ['a', 'b'], flags: ['f1'] } },
   { name: 'user', config: { tags: ['c'], flags: ['f2'] } },
@@ -241,8 +237,7 @@ expect(cfg.flags).toEqual(['f1', 'f2']);
 To customize merging for a specific field only, use `arrayLocalMergeStrategyNameSuffix`. This allows you to define a sibling field in your config that specifies the strategy for that array.
 
 ```ts :@import.meta.vitest
-const {LayeredConfig} = await import('./dist/config-layers.js');
-
+//import {LayeredConfig} from 'config-layers';
 const layers = [
   { name: 'base', config: { list: ['a', 'b'] } },
   { 
@@ -268,8 +263,6 @@ The library is suitable for localization or similar use cases. It provides grace
 
 ```typescript :@import.meta.vitest
 //import {LayeredConfig} from 'config-layers';
-const {LayeredConfig} = await import('./dist/config-layers.js');
-
 // Specify the type for the labels
 type Labels = { button: string };
 
@@ -296,8 +289,6 @@ The inspection special word is prefixed with double underscore to avoid name col
 
 ```typescript :@import.meta.vitest
 //import {LayeredConfig} from 'config-layers';
-const {LayeredConfig} = await import('./dist/config-layers.js');
-
 const layers = [
     {name: "default", config: JSON.parse(`{
     "regularName": "1", 
@@ -315,8 +306,6 @@ expect(cfg('special..name')).toBe('2'); // double dot avoids nesting
 
 ```typescript :@import.meta.vitest
 //import {LayeredConfig} from 'config-layers';
-const {LayeredConfig} = await import('./dist/config-layers.js');
-
 const layers = [
     {name: "default", config: {useMocks: false, envName: "not set", path: "cwd"}},
     {name: "env", config: {envName: "development", apikey: "2137-dev-apikey", useMocks: true}},
@@ -344,8 +333,7 @@ You can create a new configuration by adding or overriding layers, or by changin
 #### Usage
 
 ```typescript :@import.meta.vitest
-const {LayeredConfig} = await import('./dist/config-layers.js');
-
+//import {LayeredConfig} from 'config-layers';
 const base = LayeredConfig.fromLayers([
   { name: 'default', config: { apiUrl: 'https://api.example.com', timeout: 5000 } },
   { name: 'env', config: { timeout: 3000 } },
