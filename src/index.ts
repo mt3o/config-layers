@@ -14,12 +14,71 @@ function isString(key: string | symbol | number) {
     return typeof key === 'string';
 }
 
-function splitDotExceptDouble(str: string): string[] {
-    // Split on '.' not preceded or followed by another '.'
-    return str.split(/(?<!\.)\.(?!\.)/).map(part=>{
-        //and remove the additional dot from the doubled parts
-        return part.replace(/\.{2,}/gu, match=>match.slice(1));
-    });
+const DOT = 46; // '.'
+
+/**
+ * Splits a key that contains an escape (a run of two or more dots), character by character.
+ * Only reached on a cache miss for keys that actually contain `..`.
+ */
+function splitEscapedPath(str: string): string[] {
+    const parts: string[] = [];
+    let segment = '';
+    for (let i = 0; i < str.length; i++) {
+        if (str.charCodeAt(i) !== DOT) {
+            segment += str[i];
+            continue;
+        }
+        // measure the run of consecutive dots starting here
+        let run = 1;
+        while (str.charCodeAt(i + run) === DOT) run++;
+        if (run === 1) {
+            // a lone dot separates segments
+            parts.push(segment);
+            segment = '';
+        } else {
+            // a run of N dots is an escape contributing N-1 literal dots, and does not split
+            segment += '.'.repeat(run - 1);
+        }
+        i += run - 1;
+    }
+    parts.push(segment);
+    return parts;
+}
+
+const PATH_CACHE_LIMIT = 1000;
+const pathCache = new Map<string, readonly string[]>();
+
+/**
+ * Splits a config key into its path segments.
+ *
+ * A single `.` separates segments; a run of two or more dots is an escape that contributes
+ * `run - 1` literal dots to the current segment without splitting. So `a.b` -> `['a','b']`,
+ * `a..b` -> `['a.b']` and `a...b` -> `['a..b']`.
+ *
+ * Deliberately regex-free. The previous implementation split on a lookbehind assertion, which
+ * Safari only supports from 16.4 - below that esbuild silently rewrites the literal to
+ * `new RegExp(...)` and it throws at runtime on the first key lookup.
+ *
+ * Resolved paths are cached, since a config is read repeatedly through a small, fixed key set.
+ * The returned array is shared and frozen; callers must treat it as read-only.
+ */
+function splitPath(str: string): readonly string[] {
+    // no separator and nothing to unescape - by far the most common case
+    if (str.indexOf('.') === -1) return [str];
+
+    const cached = pathCache.get(str);
+    if (cached !== undefined) return cached;
+
+    const parts = str.indexOf('..') === -1
+        ? str.split('.')            // no escapes present, so every dot separates
+        : splitEscapedPath(str);
+
+    if (pathCache.size < PATH_CACHE_LIMIT) {
+        const frozen = Object.freeze(parts);
+        pathCache.set(str, frozen);
+        return frozen;
+    }
+    return parts;
 }
 
 /**
@@ -58,22 +117,46 @@ function deepMergeArrayField<T extends object, U extends object>(target: T, sour
     }
 }
 
+/**
+ * Keys that must never be written through while merging. Assigning any of them would let a config
+ * layer reach `Object.prototype` and pollute every object in the process - a layer parsed from
+ * untrusted JSON can carry `__proto__` as a genuine own property, which `hasOwnProperty` does not
+ * filter out.
+ */
+const UNSAFE_KEYS = new Set<string>(['__proto__', 'constructor', 'prototype']);
+
+/**
+ * True only for values that can be safely merged key by key: plain object literals, and
+ * null-prototype objects such as those from `Object.create(null)`.
+ *
+ * Everything else - `Date`, `RegExp`, `Map`, `Set`, `Buffer`, class instances - carries behaviour
+ * or internal slots that a key-by-key copy would silently destroy (a `Date` copied this way
+ * becomes `{}`), so those values are carried across by reference instead.
+ */
+function isPlainObject(value: unknown): value is Record<string, any> {
+    if (value === null || typeof value !== 'object') return false;
+    const proto = Object.getPrototypeOf(value);
+    return proto === null || proto === Object.prototype;
+}
+
 function deepMerge<T extends object, U extends object>(target: T, source: U, options?: Partial<ConfigOptions>): T & U {
     for (const key in source) {
         if (Object.prototype.hasOwnProperty.call(source, key)) {
+            if (UNSAFE_KEYS.has(key)) continue;
+
             const value = source[key];
             if (value === null && !options?.acceptNull) continue;
             if (value === undefined && !options?.acceptUndefined) continue;
 
-            if (
-                typeof value === 'object' &&
-                value !== null &&
-                !Array.isArray(value)
-            ) {
-                if (!(key in target)) {
+            if (isPlainObject(value)) {
+                // Only merge into another plain object. If the target side holds a scalar, an
+                // array or a non-plain object, the incoming object replaces it - merging into it
+                // would either throw (assigning a property to a primitive is a TypeError in strict
+                // mode) or corrupt the value.
+                if (!isPlainObject((target as any)[key])) {
                     (target as any)[key] = {};
                 }
-                deepMerge((target as any)[key], value as object, options);
+                deepMerge((target as any)[key], value, options);
             } else if (Array.isArray(value) && Array.isArray((target as any)[key])) {
                 deepMergeArrayField(target, source, key, value, options);
             } else {
@@ -84,11 +167,19 @@ function deepMerge<T extends object, U extends object>(target: T, source: U, opt
     return target as T & U;
 }
 
+/**
+ * Freezes the structure the config owns - the merged plain-object spine and its arrays.
+ *
+ * Non-plain objects (`Date`, `Map`, `Set`, class instances) are deliberately left alone: they are
+ * references to data the caller still owns, so freezing them would be a side effect on someone
+ * else's value, and for most of them it buys nothing anyway (`Object.freeze` on a `Map` does not
+ * prevent `map.set(...)`).
+ */
 function deepFreeze<T>(obj: T): T {
     if (obj && typeof obj === "object" && !Object.isFrozen(obj)) {
         Object.getOwnPropertyNames(obj).forEach((prop) => {
             const value = (obj as any)[prop];
-            if (value && typeof value === "object") {
+            if (value && typeof value === "object" && (isPlainObject(value) || Array.isArray(value))) {
                 deepFreeze(value);
             }
         });
@@ -206,7 +297,7 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
                 return instance.__withFallback(key, fallback);
             },
             has(_target, key) {
-                const treeKeyParts = isString(key) ? splitDotExceptDouble(key) : [key];
+                const treeKeyParts = isString(key) ? splitPath(key) : [key];
                 if (treeKeyParts.length == 1) {
                     const val = instance.__getFlat(treeKeyParts[0], undefined, true);
                     return val !== undefined && (val !== null || !!instance.options.acceptNull);
@@ -264,7 +355,7 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
                     return undefined;
                 }
 
-                const treeKeyParts = isString(key) ? splitDotExceptDouble(key) : [key];
+                const treeKeyParts = isString(key) ? splitPath(key) : [key];
 
                 if (treeKeyParts.length == 1) {
                     return instance.__getFlat(treeKeyParts[0]);
@@ -290,7 +381,7 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
     }
 
     private __withFallback<K extends keyof Schema, T>(key: K | number | symbol, fallback: T): T | Partial<Schema> {
-        const treeKeyParts = isString(key) ? splitDotExceptDouble(key) : [key];
+        const treeKeyParts = isString(key) ? splitPath(key) : [key];
         if (treeKeyParts.length == 1) {
             return this.__getFlat(treeKeyParts[0], fallback);
         }
@@ -349,7 +440,7 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
 
     private __getAll<K extends keyof Schema>(key: K|number|symbol){
         //iterate over all layers in precedence order and collect values for the key
-        const treeKeyParts = isString(key) ? splitDotExceptDouble(key) : [key];
+        const treeKeyParts = isString(key) ? splitPath(key) : [key];
 
         const layers = Array.from(this.layers.entries()).reverse() as Array<[LayerName, Partial<Schema>]>;
 
@@ -381,7 +472,7 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
 
     private __getComplex<K extends keyof Schema>(key: K | number | symbol, fallback?: unknown, silent: boolean = false) {
 
-        const treeKeyParts = isString(key) ? splitDotExceptDouble(key) : [key];
+        const treeKeyParts = isString(key) ? splitPath(key) : [key];
 
         const layers = Array.from(this.layers.values()).reverse();
 
@@ -411,8 +502,9 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
                 if (currentLayer === null && !this.options.acceptNull) continue;
                 if (currentLayer === undefined && !this.options.acceptUndefined) continue;
 
-                //if we have a plain value, return it, this is our value
-                if (typeof currentLayer != 'object' || currentLayer === null) {
+                //anything we cannot merge key-by-key is the value itself: scalars, but also arrays
+                //and non-plain objects (Date, Map, class instances), which spreading would destroy
+                if (!isPlainObject(currentLayer)) {
                     current = currentLayer;
                     isFinalValueFound = true;
                     break;
@@ -463,7 +555,7 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
             },
             layers: [],
         };
-        const keyParts = isString(key) ? splitDotExceptDouble(key) : [key];
+        const keyParts = isString(key) ? splitPath(key) : [key];
         const precedence = Array.from(this.layers.keys()).reverse() as LayerName[];
 
         if (keyParts.length < 1) {
@@ -557,39 +649,39 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
 if (import.meta.vitest) {
 // @ts-ignore
     const {describe, it, expect} = import.meta.vitest;
-    describe('splitDotExceptDouble', () => {
+    describe('splitPath', () => {
         it('should split on single dots', () => {
-            expect(splitDotExceptDouble('a.b.c')).toEqual(['a', 'b', 'c']);
+            expect(splitPath('a.b.c')).toEqual(['a', 'b', 'c']);
         });
         it('should not split on double dots', () => {
-            expect(splitDotExceptDouble('special..name')).toEqual(['special.name']);
-            expect(splitDotExceptDouble('a..b.c')).toEqual(['a.b', 'c']);
+            expect(splitPath('special..name')).toEqual(['special.name']);
+            expect(splitPath('a..b.c')).toEqual(['a.b', 'c']);
         });
         it('should handle triple dots as two splits', () => {
-            expect(splitDotExceptDouble('a...b.c')).toEqual(['a..b', 'c']);
+            expect(splitPath('a...b.c')).toEqual(['a..b', 'c']);
         });
         it('should return the whole string if no dots', () => {
-            expect(splitDotExceptDouble('abc')).toEqual(['abc']);
+            expect(splitPath('abc')).toEqual(['abc']);
         });
         it('should handle leading dot', () => {
-            expect(splitDotExceptDouble('.a.b')).toEqual(['', 'a', 'b']);
+            expect(splitPath('.a.b')).toEqual(['', 'a', 'b']);
         });
         it('should handle trailing dot', () => {
-            expect(splitDotExceptDouble('a.b.')).toEqual(['a', 'b', '']);
+            expect(splitPath('a.b.')).toEqual(['a', 'b', '']);
         });
         it('should handle only dots', () => {
-            expect(splitDotExceptDouble('..')).toEqual(['.']);
-            expect(splitDotExceptDouble('...')).toEqual(['..']);
-            expect(splitDotExceptDouble('....')).toEqual(['...']);
+            expect(splitPath('..')).toEqual(['.']);
+            expect(splitPath('...')).toEqual(['..']);
+            expect(splitPath('....')).toEqual(['...']);
         });
         it('should handle empty string', () => {
-            expect(splitDotExceptDouble('')).toEqual(['']);
+            expect(splitPath('')).toEqual(['']);
         });
         it('should handle consecutive double dots', () => {
-            expect(splitDotExceptDouble('a..b..c')).toEqual(['a.b.c']);
+            expect(splitPath('a..b..c')).toEqual(['a.b.c']);
         });
         it('should handle mixed single and double dots', () => {
-            expect(splitDotExceptDouble('a.b..c.d')).toEqual(['a', 'b.c', 'd']);
+            expect(splitPath('a.b..c.d')).toEqual(['a', 'b.c', 'd']);
         });
     });
 
