@@ -133,7 +133,9 @@ jobs:
         if: ${{ env.NPM_TOKEN != '' && steps.publishable.outputs.private == 'false' }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --provenance --access public artifact/*.tgz
+        # The `./` is load-bearing. Without it npm reads `artifact/config-layers-0.4.0.tgz` as a
+        # GitHub `owner/repo` shorthand and tries to git-clone it, failing with exit 128.
+        run: npm publish --provenance --access public ./artifact/*.tgz
 
       - name: Skip publish
         if: ${{ env.NPM_TOKEN == '' || steps.publishable.outputs.private == 'true' }}
