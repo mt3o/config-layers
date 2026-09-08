@@ -75,8 +75,14 @@ describe('protocol lookups', () => {
             expect(notFoundHandler).toHaveBeenCalledWith('doesNotExist');
         });
 
-        it('throws by default for a real missing key', () => {
-            expect(() => (cfg() as any).doesNotExist).toThrow('Key not found: doesNotExist');
+        it('warns and resolves to undefined by default', () => {
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+            try {
+                expect((cfg() as any).doesNotExist).toBeUndefined();
+                expect(warn).toHaveBeenCalledWith('[config-layers] Key not found: doesNotExist');
+            } finally {
+                warn.mockRestore();
+            }
         });
     });
 

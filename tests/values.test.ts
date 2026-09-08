@@ -139,9 +139,15 @@ describe('values', () => {
             expect(notFoundHandler).toHaveBeenCalledWith('missing');
         });
 
-        it('throws by default in that case', () => {
-            const c: any = LayeredConfig.fromLayers<any>([{name: 'a', config: {x: 1}}]);
-            expect(() => c('missing', undefined)).toThrow('Key not found: missing');
+        it('warns and yields undefined by default in that case', () => {
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+            try {
+                const c: any = LayeredConfig.fromLayers<any>([{name: 'a', config: {x: 1}}]);
+                expect(c('missing', undefined)).toBeUndefined();
+                expect(warn).toHaveBeenCalledWith('[config-layers] Key not found: missing');
+            } finally {
+                warn.mockRestore();
+            }
         });
 
         it('a falsy fallback is still honoured', () => {
@@ -196,5 +202,125 @@ describe('values that cannot be frozen', () => {
         const cfg: any = LayeredConfig.fromLayers<any>([{name: 'a', config: {re}}]);
         cfg.re.test('xx');
         expect(re.lastIndex).toBe(0);
+    });
+});
+
+/**
+ * The default `notFoundHandler`: warn, and resolve to `undefined`. It used to throw, so these pin
+ * both halves - that a miss is reported, and that it does not take the caller down.
+ */
+describe('the default not-found handler', () => {
+
+    const warnSpy = () => vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const cfg = () => LayeredConfig.fromLayers<any>([{name: 'a', config: {db: {host: 'h'}}}]);
+
+    it('warns and yields undefined for a missing flat key', () => {
+        const warn = warnSpy();
+        try {
+            expect((cfg() as any).nope).toBeUndefined();
+            expect(warn).toHaveBeenCalledWith('[config-layers] Key not found: nope');
+        } finally { warn.mockRestore(); }
+    });
+
+    it('warns and yields undefined for a missing dotted key', () => {
+        const warn = warnSpy();
+        try {
+            expect((cfg() as any)['db.nope']).toBeUndefined();
+            expect(warn).toHaveBeenCalledWith('[config-layers] Key not found: db.nope');
+        } finally { warn.mockRestore(); }
+    });
+
+    it('does not warn when a fallback is supplied', () => {
+        const warn = warnSpy();
+        try {
+            expect((cfg() as any)('nope', 'default')).toBe('default');
+            expect(warn).not.toHaveBeenCalled();
+        } finally { warn.mockRestore(); }
+    });
+
+    it('does not warn for `in`, which asks rather than reads', () => {
+        const warn = warnSpy();
+        try {
+            expect('nope' in cfg()).toBe(false);
+            expect('db.nope' in cfg()).toBe(false);
+            expect(warn).not.toHaveBeenCalled();
+        } finally { warn.mockRestore(); }
+    });
+
+    it('warns once per key, however many times it is read', () => {
+        // A miss inside a loop would otherwise emit a console.warn per iteration, and that is
+        // synchronous I/O.
+        const warn = warnSpy();
+        try {
+            const c: any = cfg();
+            for (let i = 0; i < 50; i++) void c.nope;
+            expect(warn).toHaveBeenCalledTimes(1);
+        } finally { warn.mockRestore(); }
+    });
+
+    it('warns separately for each distinct missing key', () => {
+        const warn = warnSpy();
+        try {
+            const c: any = cfg();
+            void c.nope; void c.alsoNope; void c['db.nope']; void c.nope;
+            expect(warn).toHaveBeenCalledTimes(3);
+            expect(warn.mock.calls.map((call) => call[0])).toEqual([
+                '[config-layers] Key not found: nope',
+                '[config-layers] Key not found: alsoNope',
+                '[config-layers] Key not found: db.nope',
+            ]);
+        } finally { warn.mockRestore(); }
+    });
+
+    it('does not let one config silence another', () => {
+        // the already-warned set belongs to the config, not to the module
+        const warn = warnSpy();
+        try {
+            void (cfg() as any).nope;
+            void (cfg() as any).nope;
+            expect(warn).toHaveBeenCalledTimes(2);
+        } finally { warn.mockRestore(); }
+    });
+
+    it('does not re-warn through a derived config', () => {
+        // a derived config inherits the handler with the rest of the options
+        const warn = warnSpy();
+        try {
+            const base: any = cfg();
+            void base.nope;
+            void base.__derive('extra', {y: 1}).nope;
+            expect(warn).toHaveBeenCalledTimes(1);
+        } finally { warn.mockRestore(); }
+    });
+
+    it('two symbols with the same description are still distinct keys', () => {
+        const warn = warnSpy();
+        try {
+            const c: any = cfg();
+            void c[Symbol('dup')];
+            void c[Symbol('dup')];
+            // symbols never reach notFoundHandler at all - they resolve to undefined silently
+            expect(warn).not.toHaveBeenCalled();
+        } finally { warn.mockRestore(); }
+    });
+
+    it('is inherited by a derived config, and still overridable there', () => {
+        const warn = warnSpy();
+        try {
+            const derived: any = cfg().__derive('extra', {y: 1});
+            expect(derived.nope).toBeUndefined();
+            expect(warn).toHaveBeenCalledTimes(1);
+
+            const strict: any = cfg().__derive({notFoundHandler: (k: any) => `<<${String(k)}>>`});
+            expect(strict.nope).toBe('<<nope>>');
+            expect(warn).toHaveBeenCalledTimes(1); // the custom handler replaced the warning
+        } finally { warn.mockRestore(); }
+    });
+
+    it('can still be made to throw', () => {
+        const c: any = LayeredConfig.fromLayers<any>([{name: 'a', config: {x: 1}}], {
+            notFoundHandler: (key) => { throw new Error(`Missing config key: ${String(key)}`); },
+        });
+        expect(() => c.nope).toThrow('Missing config key: nope');
     });
 });

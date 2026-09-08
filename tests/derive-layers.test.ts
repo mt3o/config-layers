@@ -124,7 +124,8 @@ describe('__derive layer identity', () => {
                 {acceptNull: true},
             );
             expect((cfg.__derive('b', {y: 1}) as any).x).toBeNull();
-            expect(() => (cfg.__derive({acceptNull: false}) as any).x).toThrow();
+            // with acceptNull off the null is transparent again, so the key reads as missing
+            expect((cfg.__derive({acceptNull: false}) as any).x).toBeUndefined();
         });
     });
 });

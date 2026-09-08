@@ -1,5 +1,5 @@
 import {fileURLToPath} from 'node:url';
-import {defineConfig} from 'vitest/config';
+import {configDefaults, defineConfig} from 'vitest/config';
 import {doctest} from 'vite-plugin-doctest';
 
 export default defineConfig({
@@ -19,6 +19,15 @@ export default defineConfig({
         },
     },
     test: {
+        // The performance guards compare the library against a baseline measured in the same
+        // process. Coverage instruments `src/` but not the baseline in the test file, which
+        // inflates every ratio - the construction guard measures 0.58x normally and 2.33x under
+        // coverage. Instrumented timings are meaningless anyway, so they are excluded from a
+        // coverage run and covered by the plain `pnpm test` instead (CI runs both).
+        exclude: process.argv.includes('--coverage')
+            ? [...configDefaults.exclude, '**/performance.test.ts']
+            : configDefaults.exclude,
+
         // Scoped deliberately: a bare `./**/*.md` collects every markdown file that so much as
         // mentions the in-source test flag in prose, and fails it with "No test suite found".
         includeSource: [

@@ -1,6 +1,10 @@
 import {describe, expect, it} from 'vitest';
 import {LayeredConfig} from '../src';
 
+
+/** A value no config in this file produces, so it is unambiguous that resolution found nothing. */
+const MISSING = Symbol('missing');
+
 /**
  * Flat access (`cfg.a.b`) and dotted access (`cfg['a.b']`) must be the same operation.
  *
@@ -83,7 +87,7 @@ describe('resolution', () => {
             expect(cfg.db.host).toBe('orig');
             expect(cfg['db.host']).toBe('orig');
             expect(cfg.list).toEqual(['x']);
-            expect(() => cfg.newKey).toThrow();
+            expect(cfg.newKey).toBeUndefined();
         });
     });
 
@@ -91,8 +95,13 @@ describe('resolution', () => {
         it.each(['constructor.name', 'toString.name', '__proto__.x', 'constructor.prototype'])(
             'cfg[%o] does not resolve',
             (path) => {
-                const cfg: any = LayeredConfig.fromLayers<any>([{name: 'a', config: {x: 1}}]);
-                expect(() => cfg[path]).toThrow();
+                // resolves to nothing rather than reaching Object.prototype; a custom handler is
+                // used so the assertion is about resolution, not about the default warning
+                const cfg: any = LayeredConfig.fromLayers<any>(
+                    [{name: 'a', config: {x: 1}}],
+                    {notFoundHandler: () => MISSING},
+                );
+                expect(cfg[path]).toBe(MISSING);
             },
         );
     });

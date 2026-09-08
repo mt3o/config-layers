@@ -36,6 +36,18 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
 
+      # Coverage is computed once here rather than per Node version - the numbers are identical
+      # and instrumentation is not free. The build is needed so tests/dist-smoke.test.ts runs.
+      - run: pnpm build
+      - run: pnpm test:coverage
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          if-no-files-found: error
+
   test:
     name: Test on Node ${{ matrix.node }}
     runs-on: ubuntu-latest
@@ -58,12 +70,7 @@ jobs:
       # the iPhone 6s syntax floor, so CI must not be the place they quietly skip.
       - run: pnpm build
 
-      - run: pnpm test:coverage
-
-      - name: Upload coverage
-        if: matrix.node == 22
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage
-          path: coverage/
-          if-no-files-found: error
+      # `pnpm test`, not `test:coverage`: the performance guards are excluded from a coverage run
+      # because instrumentation distorts the very timings they assert on, so this is the run that
+      # actually exercises them - on every supported Node version.
+      - run: pnpm test

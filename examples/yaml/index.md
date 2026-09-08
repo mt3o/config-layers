@@ -186,7 +186,8 @@ const configWithCustomErrors = LayeredConfig.fromLayers<Schema>(
   }
 );
 
-// This will log a warning instead of throwing an error
+// Warning and undefined is also the default, so this handler is only worth writing when you
+// want different wording, a different return value, or to route it to your own logger.
 const missingValue = configWithCustomErrors.nonExistentKey;
 ```
 

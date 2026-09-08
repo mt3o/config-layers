@@ -5,6 +5,7 @@ import type {
     ConfigHandle,
     DeepOptionalAndUndefined,
     ArrayMergeStrategy,
+    NotFoundHandler,
 } from "./types";
 
 export type {LayerName, ConfigInspectionResult, ConfigOptions, ConfigHandle, DeepOptionalAndUndefined};
@@ -89,6 +90,8 @@ function splitPath(str: string): readonly string[] {
  * It supports different strategies {ArrayMergeStrategy}, to determine
  * how the new array values are merged with the existing ones. So - are they merged/concat/replaced
  *
+ * @template T type for the target parameter
+ * @template U type for the source parameter
  * @param {T} target - The target object where the array field will be merged.
  * @param {U} source - The source object containing the array field and potentially strategy overrides.
  * @param {string} key - The key of the array field in the target object to be merged.
@@ -96,7 +99,13 @@ function splitPath(str: string): readonly string[] {
  * @param {Partial<ConfigOptions>} [options] - Optional configuration, including the global array merge strategy and the local strategy field suffix.
  * @returns {void} This function does not return a value; it modifies the target object in place.
  */
-function deepMergeArrayField<T extends object, U extends object>(target: T, source: U, key: string, value: any[], options?: Partial<ConfigOptions>,) {
+function deepMergeArrayField<T extends object, U extends object>(
+    target: T,
+    source: U,
+    key: string,
+    value: any[],
+    options?: Partial<ConfigOptions>,
+) {
     const strategy = options?.arrayMergeStrategy ?? 'override';
 
     const localOverrideStrategyFieldName = options?.arrayLocalMergeStrategyNameSuffix
@@ -216,6 +225,36 @@ function cloneOwned(value: any): any {
         if ('value' in descriptor) descriptor.value = cloneOwned(descriptor.value);
     }
     return Object.create(Object.getPrototypeOf(value), descriptors);
+}
+
+/**
+ * How many distinct missing keys one config remembers having warned about. Past this it warns
+ * every time again, which is noisy but honest - the alternative would be going silent.
+ */
+const WARNED_KEYS_LIMIT = 1000;
+
+/**
+ * Builds the default `notFoundHandler`: warn once per key, and resolve the key to `undefined`.
+ *
+ * One handler - and one set of already-warned keys - per config, rather than a module-level one,
+ * so two unrelated configs do not silence each other and nothing outlives the config that created
+ * it. A derived config inherits its parent's handler along with the rest of the options, so
+ * deriving does not re-warn about a key the parent has already reported.
+ *
+ * De-duplicating matters beyond tidiness: a missing key read inside a loop would otherwise emit a
+ * `console.warn` per iteration, and that is synchronous I/O.
+ */
+function createDefaultNotFoundHandler(): NotFoundHandler {
+    // Keyed on the raw key rather than its string form, so two symbols sharing a description are
+    // not treated as the same key.
+    const warned = new Set<string | symbol | number>();
+
+    return (key) => {
+        if (warned.has(key)) return undefined;
+        if (warned.size < WARNED_KEYS_LIMIT) warned.add(key);
+        console.warn(`[config-layers] Key not found: ${String(key)}`);
+        return undefined;
+    };
 }
 
 /**
@@ -365,7 +404,7 @@ function deepFreeze<T>(obj: T): T {
  * ]);
  * expect(config.apiUrl).toBe('https://custom-api.example.com'); // from 'user' layer
  * expect(config.timeout).toBe(3000); // from 'env' layer
- * expect(()=>config.nonExistentKey).toThrow(); // throws error
+ * expect(config.nonExistentKey).toBeUndefined(); // warns, and resolves to undefined
  * ```
  *
  * **Using for i18n**
@@ -413,9 +452,11 @@ export class LayeredConfig<Schema extends Record<string | symbol, any> = Record<
 
         this.options = {
             ...{
-                notFoundHandler: (key) => {
-                    throw new Error(`Key not found: ${String(key)}`);
-                },
+                // Warns once per key and resolves to `undefined` rather than throwing. A missing
+                // config key is usually a typo or a layer that did not load, and taking down the
+                // caller for it is rarely what you want - but it should not pass silently either.
+                // Pass your own `notFoundHandler` to throw, route to a logger, or supply a default.
+                notFoundHandler: createDefaultNotFoundHandler(),
                 freeze: true,
                 acceptNull: false,
                 acceptUndefined: false,

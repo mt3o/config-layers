@@ -183,7 +183,36 @@ expect(Array.from(new Set(
 
 #### Not Found Handler
 
-In typical scenario, when config value is not found, you expect an error to be thrown. This is the default behavior. However, in some cases you might want to provide a fallback value or handle missing keys gracefully. You can do this by providing a custom `notFoundHandler` function when creating the layered config.
+When a config value is not found, the default behavior is to log a warning and resolve the key to
+`undefined`:
+
+```text
+[config-layers] Key not found: apikey
+```
+
+A missing key is usually a typo or a layer that failed to load, and taking the application down for
+it is rarely what you want — but it should not pass silently either.
+
+Each key is warned about **once per config**, so a missing key read inside a loop does not flood the
+console. The record of what has already been warned belongs to the config rather than to the module,
+so two unrelated configs do not silence each other; a derived config inherits its parent's, and will
+not re-report a key the parent has already covered.
+
+You can replace this entirely with a custom `notFoundHandler`. Whatever it returns becomes the
+resolved value, so it can supply a default, route to your own logger, or throw if you would rather
+fail loudly:
+
+```typescript
+import {LayeredConfig} from 'config-layers';
+const strict = LayeredConfig.fromLayers<{apikey: string}>(
+  [{ name: "default", config: {} }],
+  {
+    notFoundHandler: key => { throw new Error(`Missing config key: ${String(key)}`); }
+  }
+);
+```
+
+Or to return a default value for any missing key:
 
 ```typescript :@import.meta.vitest
 //import {LayeredConfig} from 'config-layers';
@@ -197,6 +226,10 @@ const cfg = LayeredConfig.fromLayers<{apikey: string}>(
 );
 expect(cfg.anything).toBe('XD'); // the handler is called for any missing key
 ```
+
+The handler is reached only by a genuine miss. Language and library protocol lookups — `toJSON`,
+`toString`, `Symbol.toPrimitive`, `$$typeof` and friends — are answered without consulting it, so
+`console.log`, `JSON.stringify` and string coercion never trigger a spurious warning.
 
 #### Freeze
 
