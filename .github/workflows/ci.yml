@@ -21,17 +21,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # pnpm has to be on PATH before setup-node, or `cache: pnpm` has nothing to look for.
       - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
 
-      # --frozen-lockfile so a drifted lockfile fails here rather than silently resolving to
-      # something the repo never committed.
-      - run: pnpm install --frozen-lockfile
+      # No `cache: pnpm` and no `--frozen-lockfile`: this repository deliberately does not commit a
+      # lockfile (see the note at the top of .gitignore - it has no runtime dependencies, so a
+      # lockfile would only pin the dev toolchain). Both of those options require one, and
+      # setup-node fails outright with "Dependencies lock file is not found" when it is missing.
+      - run: pnpm install
 
       - run: pnpm lint
       - run: pnpm typecheck
@@ -61,9 +61,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-          cache: pnpm
 
-      - run: pnpm install --frozen-lockfile
+      # No `cache: pnpm` and no `--frozen-lockfile`: this repository deliberately does not commit a
+      # lockfile (see the note at the top of .gitignore - it has no runtime dependencies, so a
+      # lockfile would only pin the dev toolchain). Both of those options require one, and
+      # setup-node fails outright with "Dependencies lock file is not found" when it is missing.
+      - run: pnpm install
 
       # Build before testing. The suite runs fine without dist/ - tests/dist-smoke.test.ts skips
       # itself when it is absent - but those are the checks that guard the published artifact and
