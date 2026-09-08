@@ -1,7 +1,7 @@
 {
   "name": "config-layers",
   "private": false,
-  "version": "0.2.1",
+  "version": "0.4.0",
   "type": "module",
   "packageManager": "pnpm@12.3.4",
   "main": "dist/config-layers.js",
@@ -25,7 +25,8 @@
   },
   "license": "MIT",
   "files": [
-    "dist"
+    "dist",
+    "CHANGELOG.md"
   ],
   "author": {
     "name": "Teodor Kulej",
